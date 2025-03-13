@@ -1,4 +1,4 @@
-# csrun
+# dotnet-cs
 
 A tool that makes it easy to run standalone C# files.
 

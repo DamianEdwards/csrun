@@ -1,7 +1,10 @@
 ﻿using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.Diagnostics;
+using System.Net.Http.Json;
 using System.Reflection;
+using System.Text.Json.Serialization;
+using NuGet.Versioning;
 
 var targetArgument = new CliArgument<string?>("TARGETAPPFILE")
 {
@@ -31,6 +34,8 @@ return exitCode;
 
 async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellationToken)
 {
+    var detectNewerVersionTask = Task.Run(() => DetectNewerVersion(cancellationToken), cancellationToken);
+
     var targetValue = parseResult.GetValue(targetArgument);
 
     if (string.IsNullOrEmpty(targetValue))
@@ -83,9 +88,61 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
 
     var appArgs = parseResult.GetValue(appArgsArgument);
 
-    await DotnetCli.Run(targetFilePath, appArgs, cancellationToken);
+    var exitCode = await DotnetCli.Run(targetFilePath, appArgs, cancellationToken);
 
-    return 0;
+    // Process the detect newer version task
+    try
+    {
+        var newerVersion = await detectNewerVersionTask;
+        if (newerVersion is not null)
+        {
+            // TODO: Handle case when newer version is a pre-release version
+            WriteLine();
+            WriteLine($"A newer version ({newerVersion}) of dotnet-cs is available!", ConsoleColor.Yellow);
+            WriteLine("Update by running 'dotnet tool update -g dotnet-cs'", ConsoleColor.Green);
+        }
+    }
+    catch (Exception)
+    {
+        // Ignore exceptions from the detect newer version task
+    }
+
+    return exitCode;
+}
+
+static async Task<string?> DetectNewerVersion(CancellationToken cancellationToken)
+{
+    var currentVersionValue = VersionOptionAction.GetCurrentVersion();
+    if (currentVersionValue is null || !SemanticVersion.TryParse(currentVersionValue, out var currentVersion))
+    {
+        return null;
+    }
+
+    var packageUrl = "https://api.nuget.org/v3-flatcontainer/dotnet-purge/index.json";
+    using var httpClient = new HttpClient();
+    var versions = await httpClient.GetFromJsonAsync(packageUrl, CsRunJsonContext.Default.NuGetVersions, cancellationToken: cancellationToken);
+
+    if (versions?.Versions is null || versions.Versions.Length == 0)
+    {
+        return null;
+    }
+
+    var versionComparer = new VersionComparer();
+    var latestVersion = currentVersion;
+    foreach (var versionValue in versions.Versions)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            break;
+        }
+
+        if (SemanticVersion.TryParse(versionValue, out var version) && version > latestVersion)
+        {
+            latestVersion = version;
+        }
+    }
+
+    return latestVersion > currentVersion ? latestVersion.ToString() : null;
 }
 
 static void WriteError(string message) => WriteLine(message, ConsoleColor.Red);
@@ -162,6 +219,18 @@ static class DotnetCli
 
         return info;
     }
+}
+
+[JsonSerializable(typeof(NuGetVersions))]
+internal partial class CsRunJsonContext : JsonSerializerContext
+{
+
+}
+
+internal class NuGetVersions
+{
+    [JsonPropertyName("versions")]
+    public string[] Versions { get; set; } = [];
 }
 
 internal sealed class VersionOptionAction : SynchronousCliAction
