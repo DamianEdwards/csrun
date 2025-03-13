@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RollForward>LatestMajor</RollForward>
+    <RootNamespace>DotNetCs</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>cs</ToolCommandName>
+    <VersionPrefix>0.0.1</VersionPrefix>
+    <VersionSuffix Condition=" '$(Configuration)' == 'Debug' ">dev</VersionSuffix>
+    <Authors>Damian Edwards</Authors>
+    <Copyright>Copyright © Damian Edwards</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/DamianEdwards/csrun</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/DamianEdwards/csrun</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <PackageTags>csharp run</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <PublishAot Condition=" '$(Configuration)' == 'Debug' ">True</PublishAot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <PackageReference Include="System.CommandLine" Version="2.0.0-*" />
+  </ItemGroup>
+
+</Project>
