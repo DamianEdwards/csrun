@@ -118,7 +118,7 @@ static async Task<string?> DetectNewerVersion(CancellationToken cancellationToke
         return null;
     }
 
-    var packageUrl = "https://api.nuget.org/v3-flatcontainer/dotnet-purge/index.json";
+    var packageUrl = "https://api.nuget.org/v3-flatcontainer/dotnet-cs/index.json";
     using var httpClient = new HttpClient();
     var versions = await httpClient.GetFromJsonAsync(packageUrl, CsRunJsonContext.Default.NuGetVersions, cancellationToken: cancellationToken);
 
