@@ -42,14 +42,15 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
 
     if (string.IsNullOrEmpty(targetValue))
     {
-        // Read from stdin if no target file is specified
-        var input = await Console.In.ReadToEndAsync(cancellationToken);
-        if (string.IsNullOrEmpty(input))
+        if (!Console.IsInputRedirected)
         {
             WriteError("No target file specified and no input from stdin.");
             return 1;
         }
-        
+
+        // Read from stdin if no target file is specified
+        var input = await Console.In.ReadToEndAsync(cancellationToken);
+
         // Save input to a temporary file
         var tempFilePath = Path.GetTempFileName();
         await using (var fileStream = File.Create(tempFilePath))
