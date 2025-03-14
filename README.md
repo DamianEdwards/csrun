@@ -1,19 +1,27 @@
 # dotnet-cs
 
-A tool that makes it easy to run standalone C# files.
+A tool that makes it easy to run C# from a file, URI, or stdin.
 
 > Currently requires [.NET 10 SDK daily build](https://github.com/dotnet/sdk/blob/main/documentation/package-table.md), version *10.0.100-preview.3.25163.13* or later
 
 ## Installation
 
-```bash
+```shell
 dotnet tool install -g dotnet-cs
 ```
 
 ## Usage
 
-```bash
-cs <TARGETAPPFILE> [<APPARGS>]
+```shell
+cs [<TARGETAPPFILE> [<APPARGS>...]]
+```
+
+```shell
+<COMMAND> | cs
+```
+
+```shell
+cs < <CSFILE>
 ```
 
 ### Arguments
@@ -49,9 +57,16 @@ $ cs https://raw.githubusercontent.com/DamianEdwards/csrun/refs/heads/stdin/samp
 Hello, Stephen!
 ```
 
-Pipe C# file contents to `cs`:
+Pipe C# code from a shell string literal to `cs`:
 
 ```shell
 $ 'Console.WriteLine("Hello, world!");' | cs
+Hello, world!
+```
+
+Pipe C# code from shell command output to `cs` via stdin:
+
+```shell
+$ cat hello.cs | cs
 Hello, world!
 ```

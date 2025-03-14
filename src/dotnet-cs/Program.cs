@@ -18,7 +18,7 @@ var appArgsArgument = new CliArgument<string[]?>("APPARGS")
     Arity = ArgumentArity.ZeroOrMore
 };
 
-var rootCommand = new CliRootCommand("Runs standalone C# files.")
+var rootCommand = new CliRootCommand("Runs C# from a file, URI, or stdin.")
 {
     targetArgument,
     appArgsArgument
@@ -37,19 +37,27 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
     var detectNewerVersionTask = Task.Run(() => DetectNewerVersion(cancellationToken), cancellationToken);
 
     var targetValue = parseResult.GetValue(targetArgument);
+    var appArgsValue = parseResult.GetValue(appArgsArgument);
 
     string? targetFilePath = null;
+    List<string> appArgs = [];
 
-    if (string.IsNullOrEmpty(targetValue))
+    // Add the args
+    if (appArgsValue is not null && appArgsValue.Length > 0)
     {
-        if (!Console.IsInputRedirected)
-        {
-            WriteError("No target file specified and no input from stdin.");
-            return 1;
-        }
+        appArgs.AddRange(appArgsValue);
+    }
 
+    if (Console.IsInputRedirected)
+    {
         // Read from stdin if no target file is specified
         var input = await Console.In.ReadToEndAsync(cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            WriteError("No input provided.");
+            return 1;
+        }
 
         // Save input to a temporary file
         var tempFilePath = Path.GetTempFileName();
@@ -64,9 +72,16 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
         File.Move(tempFilePath, csFilePath, true);
 
         targetFilePath = csFilePath;
+
+        // Insert the targetValue arg as an app arg
+        if (targetValue is not null)
+        {
+            appArgs.Insert(0, targetValue);
+        }
     }
-    else if ((targetValue.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || targetValue.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
-        && Uri.TryCreate(targetValue, UriKind.Absolute, out var uri))
+    else if ((targetValue?.StartsWith("https://", StringComparison.OrdinalIgnoreCase) == true
+              || targetValue?.StartsWith("http://", StringComparison.OrdinalIgnoreCase) == true)
+             && Uri.TryCreate(targetValue, UriKind.Absolute, out var uri))
     {
         // If it's a URI, download the file to a temporary location
         Write($"Downloading file from {uri}... ", ConsoleColor.DarkGray);
@@ -101,11 +116,16 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
     }
     else
     {
-        WriteError($"File not found: {targetValue}");
+        if (string.IsNullOrEmpty(targetValue))
+        {
+            WriteError("No target file specified or no input provided.");
+        }
+        else
+        {
+            WriteError($"File not found: {targetValue}");
+        }
         return 1;
     }
-
-    var appArgs = parseResult.GetValue(appArgsArgument);
 
     var exitCode = await DotnetCli.Run(targetFilePath, appArgs, cancellationToken);
 
@@ -194,10 +214,10 @@ static class DotnetCli
 {
     private static readonly string[] RunArgs = ["run"];
 
-    public async static Task<int> Run(string filePath, string[]? args, CancellationToken cancellationToken)
+    public async static Task<int> Run(string filePath, List<string>? args, CancellationToken cancellationToken)
     {
         var arguments = RunArgs.Concat([filePath]);
-        if (args is { Length: > 0 })
+        if (args is { Count: > 0 })
         {
             arguments = arguments.Concat(args);
         }
