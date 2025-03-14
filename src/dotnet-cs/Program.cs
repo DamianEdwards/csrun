@@ -8,7 +8,7 @@ using NuGet.Versioning;
 
 var targetArgument = new CliArgument<string?>("TARGETAPPFILE")
 {
-    Description = "The path to the C# file to run. This can be a relative or absolute path, or a URI to a remote file.",
+    Description = "The file path or URI for the C# file to run.",
     Arity = ArgumentArity.ZeroOrOne
 };
 
