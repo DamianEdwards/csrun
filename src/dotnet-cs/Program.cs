@@ -3,8 +3,11 @@ using System.CommandLine.Invocation;
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Reflection;
+using System.Text;
 using System.Text.Json.Serialization;
 using NuGet.Versioning;
+
+var minimumSdkVersion = new SemanticVersion(10, 0, 100, "preview.3.25163.13");
 
 var targetArgument = new CliArgument<string?>("TARGETAPPFILE")
 {
@@ -35,6 +38,7 @@ return exitCode;
 async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellationToken)
 {
     var detectNewerVersionTask = Task.Run(() => DetectNewerVersion(cancellationToken), cancellationToken);
+    var validateSdkVersionTask = Task.Run(() => ValidateMinimumSdkVersion(minimumSdkVersion, cancellationToken), cancellationToken);
 
     var targetValue = parseResult.GetValue(targetArgument);
     var appArgsValue = parseResult.GetValue(appArgsArgument);
@@ -119,6 +123,15 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
         return 1;
     }
 
+    var (hasMinRequiredSdkVersion, currentSdkVersion) = await validateSdkVersionTask;
+    if (!hasMinRequiredSdkVersion)
+    {
+        WriteLine();
+        WriteLine($"This tool requires .NET SDK version {minimumSdkVersion} or higher but current version is {currentSdkVersion}.", ConsoleColor.Red);
+        return 1;
+    }    
+
+    // Run the target file
     var exitCode = await DotnetCli.Run(targetFilePath, appArgs, cancellationToken);
 
     // Process the detect newer version task
@@ -149,6 +162,17 @@ static string ChangeFileExtension(string filePath, string newExtension)
     var newFilePath = Path.Join(directory, newFileName);
     File.Move(filePath, newFilePath, true);
     return newFilePath;
+}
+
+static async Task<(bool, SemanticVersion?)> ValidateMinimumSdkVersion(SemanticVersion minSdkVersionRequired, CancellationToken cancellationToken)
+{
+    var sdkVersion = await DotnetCli.Version(cancellationToken);
+    if (sdkVersion is null)
+    {
+        return (false, null);
+    }
+    
+    return sdkVersion >= minSdkVersionRequired ? (true, sdkVersion) : (false, sdkVersion);
 }
 
 static async Task<string?> DetectNewerVersion(CancellationToken cancellationToken)
@@ -214,7 +238,39 @@ static void Write(string? message = null, ConsoleColor? color = default)
 
 static class DotnetCli
 {
+    private static readonly string[] VersionArgs = ["--version"];
     private static readonly string[] RunArgs = ["run"];
+
+    public static async Task<SemanticVersion?> Version(CancellationToken cancellationToken)
+    {
+        var startInfo = GetProcessStartInfo(VersionArgs);
+        startInfo.RedirectStandardOutput = true;
+        startInfo.Environment.Add("DOTNET_CLI_TELEMETRY_OPTOUT", "1");
+        startInfo.Environment.Add("DOTNET_NOLOGO", "1");
+        startInfo.Environment.Add("DOTNET_GENERATE_ASPNET_CERTIFICATE", "0");
+        startInfo.Environment.Add("DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "1");
+
+        using var process = Start(startInfo);
+
+        var stdout = new StringBuilder();
+        process.OutputDataReceived += (sender, args) =>
+        {
+            if (args.Data is not null)
+            {
+                stdout.AppendLine(args.Data);
+            }
+        };
+        process.BeginOutputReadLine();
+
+        await process.WaitForExitAsync(cancellationToken);
+
+        if (process.ExitCode != 0)
+        {
+            return null;
+        }
+
+        return SemanticVersion.TryParse(stdout.ToString().Trim(), out var value) ? value : null;
+    }
 
     public async static Task<int> Run(string filePath, List<string>? args, CancellationToken cancellationToken)
     {
