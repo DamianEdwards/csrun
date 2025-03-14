@@ -17,19 +17,19 @@ cs [<TARGETAPPFILE> [<APPARGS>...]]
 ```
 
 ```shell
-<COMMAND> | cs
+<COMMAND> | cs [<APPARGS>...]
 ```
 
 ```shell
-cs < <CSFILE>
+cs [<APPARGS>...] < <CSFILE>
 ```
 
 ### Arguments
 
 Name  | Description
 ------|------------------------------------------------
-&lt;TARGETAPPFILE&gt; | The file path or URI for the C# file to run.
-&lt;APPARGS&gt; | Any arguments that should be passed to the C# app.
+`<TARGETAPPFILE>` | The file path or URI for the C# file to run.
+`<APPARGS>` | Any arguments that should be passed to the C# app.
 
 ### Examples
 
