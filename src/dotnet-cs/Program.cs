@@ -67,11 +67,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
             await writer.WriteAsync(input.AsMemory(), cancellationToken);
         }
 
-        // Change the file to a .cs extension
-        var csFilePath = Path.Join(Path.GetDirectoryName(tempFilePath), Path.GetFileNameWithoutExtension(tempFilePath) + ".cs");
-        File.Move(tempFilePath, csFilePath, true);
-
-        targetFilePath = csFilePath;
+        targetFilePath = ChangeFileExtension(tempFilePath, ".cs");
 
         // Insert the targetValue arg as an app arg
         if (targetValue is not null)
@@ -103,11 +99,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
             await response.Content.CopyToAsync(fileStream, cancellationToken);
         }
 
-        // Change the file to a .cs extension
-        var csFilePath = Path.Join(Path.GetDirectoryName(tempFilePath), Path.GetFileNameWithoutExtension(tempFilePath) + ".cs");
-        File.Move(tempFilePath, csFilePath, true);
-
-        targetFilePath = csFilePath;
+        targetFilePath = ChangeFileExtension(tempFilePath, ".cs");
     }
     else if (File.Exists(targetValue))
     {
@@ -147,6 +139,16 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
     }
 
     return exitCode;
+}
+
+static string ChangeFileExtension(string filePath, string newExtension)
+{
+    var directory = Path.GetDirectoryName(filePath);
+    var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(filePath);
+    var newFileName = $"{fileNameWithoutExtension}{newExtension}";
+    var newFilePath = Path.Join(directory, newFileName);
+    File.Move(filePath, newFilePath, true);
+    return newFilePath;
 }
 
 static async Task<string?> DetectNewerVersion(CancellationToken cancellationToken)
