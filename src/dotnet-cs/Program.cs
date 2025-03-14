@@ -8,8 +8,8 @@ using NuGet.Versioning;
 
 var targetArgument = new CliArgument<string?>("TARGETAPPFILE")
 {
-    Description = "The path to the C# file to run. This can be a relative or absolute path, or a URI to a remote file.",
-    Arity = ArgumentArity.ExactlyOne
+    Description = "The file path or URI for the C# file to run.",
+    Arity = ArgumentArity.ZeroOrOne
 };
 
 var appArgsArgument = new CliArgument<string[]?>("APPARGS")
@@ -18,7 +18,7 @@ var appArgsArgument = new CliArgument<string[]?>("APPARGS")
     Arity = ArgumentArity.ZeroOrMore
 };
 
-var rootCommand = new CliRootCommand("Runs standalone C# files.")
+var rootCommand = new CliRootCommand("Runs C# from a file, URI, or stdin.")
 {
     targetArgument,
     appArgsArgument
@@ -37,21 +37,50 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
     var detectNewerVersionTask = Task.Run(() => DetectNewerVersion(cancellationToken), cancellationToken);
 
     var targetValue = parseResult.GetValue(targetArgument);
-
-    if (string.IsNullOrEmpty(targetValue))
-    {
-        WriteError("No target file specified.");
-        return 1;
-    }
+    var appArgsValue = parseResult.GetValue(appArgsArgument);
 
     string? targetFilePath = null;
+    List<string> appArgs = [];
 
-    if ((targetValue.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || targetValue.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
-        && Uri.TryCreate(targetValue, UriKind.Absolute, out var uri))
+    // Add the args
+    if (appArgsValue is not null && appArgsValue.Length > 0)
+    {
+        appArgs.AddRange(appArgsValue);
+    }
+
+    if (Console.IsInputRedirected)
+    {
+        // Read from stdin if no target file is specified
+        var input = await Console.In.ReadToEndAsync(cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            WriteError("No input provided.");
+            return 1;
+        }
+
+        // Save input to a temporary file
+        var tempFilePath = Path.GetTempFileName();
+        await using (var fileStream = File.Create(tempFilePath))
+        {
+            using var writer = new StreamWriter(fileStream);
+            await writer.WriteAsync(input.AsMemory(), cancellationToken);
+        }
+
+        targetFilePath = ChangeFileExtension(tempFilePath, ".cs");
+
+        // Insert the targetValue arg as an app arg
+        if (targetValue is not null)
+        {
+            appArgs.Insert(0, targetValue);
+        }
+    }
+    else if ((targetValue?.StartsWith("https://", StringComparison.OrdinalIgnoreCase) == true
+              || targetValue?.StartsWith("http://", StringComparison.OrdinalIgnoreCase) == true)
+             && Uri.TryCreate(targetValue, UriKind.Absolute, out var uri))
     {
         // If it's a URI, download the file to a temporary location
         Write($"Downloading file from {uri}... ", ConsoleColor.DarkGray);
-        var tempFilePath = Path.GetTempFileName();
         using var client = new HttpClient();
         var response = await client.GetAsync(uri, cancellationToken);
 
@@ -64,16 +93,13 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
 
         WriteLine("done", ConsoleColor.DarkGray);
 
+        var tempFilePath = Path.GetTempFileName();
         await using (var fileStream = File.Create(tempFilePath))
         {
             await response.Content.CopyToAsync(fileStream, cancellationToken);
         }
 
-        // Change the file to a .cs extension
-        var csFilePath = Path.Join(Path.GetDirectoryName(tempFilePath), Path.GetFileNameWithoutExtension(tempFilePath) + ".cs");
-        File.Move(tempFilePath, csFilePath, true);
-
-        targetFilePath = csFilePath;
+        targetFilePath = ChangeFileExtension(tempFilePath, ".cs");
     }
     else if (File.Exists(targetValue))
     {
@@ -82,11 +108,16 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
     }
     else
     {
-        WriteError($"File not found: {targetValue}");
+        if (string.IsNullOrEmpty(targetValue))
+        {
+            WriteError("No target file specified or no input provided.");
+        }
+        else
+        {
+            WriteError($"File not found: {targetValue}");
+        }
         return 1;
     }
-
-    var appArgs = parseResult.GetValue(appArgsArgument);
 
     var exitCode = await DotnetCli.Run(targetFilePath, appArgs, cancellationToken);
 
@@ -108,6 +139,16 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
     }
 
     return exitCode;
+}
+
+static string ChangeFileExtension(string filePath, string newExtension)
+{
+    var directory = Path.GetDirectoryName(filePath);
+    var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(filePath);
+    var newFileName = $"{fileNameWithoutExtension}{newExtension}";
+    var newFilePath = Path.Join(directory, newFileName);
+    File.Move(filePath, newFilePath, true);
+    return newFilePath;
 }
 
 static async Task<string?> DetectNewerVersion(CancellationToken cancellationToken)
@@ -175,10 +216,10 @@ static class DotnetCli
 {
     private static readonly string[] RunArgs = ["run"];
 
-    public async static Task<int> Run(string filePath, string[]? args, CancellationToken cancellationToken)
+    public async static Task<int> Run(string filePath, List<string>? args, CancellationToken cancellationToken)
     {
         var arguments = RunArgs.Concat([filePath]);
-        if (args is { Length: > 0 })
+        if (args is { Count: > 0 })
         {
             arguments = arguments.Concat(args);
         }
