@@ -20,14 +20,14 @@ cs <TARGETAPPFILE> [<APPARGS>]
 
 Name  | Description
 ------|------------------------------------------------
-&lt;TARGETAPPFILE&gt; | The path to the C# file to run. This can be a relative or absolute path, or a URI to a remote file.
+&lt;TARGETAPPFILE&gt; | The file path or URI for the C# file to run.
 &lt;APPARGS&gt; | Any arguments that should be passed to the C# app.
 
 ### Examples
 
 Run a C# file named `hello.cs` in the current directory:
 
-```bash
+```shell
 ~/apps
 $ cs hello.cs
 Hello, world!
@@ -35,7 +35,7 @@ Hello, world!
 
 Run a C# file named `hello.cs` in a sub-directory and pass an argument to it:
 
-```bash
+```shell
 ~/apps
 $ cs ./utils/hello.cs David
 Hello, David!
@@ -43,8 +43,15 @@ Hello, David!
 
 Run a C# file from `https://github.com/DamianEdwards/csrun/tree/main/samples/hello.cs` and pass an argument to it:
 
-```bash
+```shell
 ~/apps
 $ cs https://github.com/DamianEdwards/csrun/tree/main/samples/hello.cs Stephen
 Hello, Stephen!
+```
+
+Pipe C# file contents to `cs`:
+
+```shell
+$ 'Console.WriteLine("Hello, world!");' | cs
+Hello, world!
 ```
