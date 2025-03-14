@@ -9,7 +9,7 @@ using NuGet.Versioning;
 var targetArgument = new CliArgument<string?>("TARGETAPPFILE")
 {
     Description = "The path to the C# file to run. This can be a relative or absolute path, or a URI to a remote file.",
-    Arity = ArgumentArity.ExactlyOne
+    Arity = ArgumentArity.ZeroOrOne
 };
 
 var appArgsArgument = new CliArgument<string[]?>("APPARGS")
@@ -38,20 +38,37 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
 
     var targetValue = parseResult.GetValue(targetArgument);
 
-    if (string.IsNullOrEmpty(targetValue))
-    {
-        WriteError("No target file specified.");
-        return 1;
-    }
-
     string? targetFilePath = null;
 
-    if ((targetValue.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || targetValue.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+    if (string.IsNullOrEmpty(targetValue))
+    {
+        // Read from stdin if no target file is specified
+        var input = await Console.In.ReadToEndAsync(cancellationToken);
+        if (string.IsNullOrEmpty(input))
+        {
+            WriteError("No target file specified and no input from stdin.");
+            return 1;
+        }
+        
+        // Save input to a temporary file
+        var tempFilePath = Path.GetTempFileName();
+        await using (var fileStream = File.Create(tempFilePath))
+        {
+            using var writer = new StreamWriter(fileStream);
+            await writer.WriteAsync(input.AsMemory(), cancellationToken);
+        }
+
+        // Change the file to a .cs extension
+        var csFilePath = Path.Join(Path.GetDirectoryName(tempFilePath), Path.GetFileNameWithoutExtension(tempFilePath) + ".cs");
+        File.Move(tempFilePath, csFilePath, true);
+
+        targetFilePath = csFilePath;
+    }
+    else if ((targetValue.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || targetValue.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
         && Uri.TryCreate(targetValue, UriKind.Absolute, out var uri))
     {
         // If it's a URI, download the file to a temporary location
         Write($"Downloading file from {uri}... ", ConsoleColor.DarkGray);
-        var tempFilePath = Path.GetTempFileName();
         using var client = new HttpClient();
         var response = await client.GetAsync(uri, cancellationToken);
 
@@ -64,6 +81,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
 
         WriteLine("done", ConsoleColor.DarkGray);
 
+        var tempFilePath = Path.GetTempFileName();
         await using (var fileStream = File.Create(tempFilePath))
         {
             await response.Content.CopyToAsync(fileStream, cancellationToken);
