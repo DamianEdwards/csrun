@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.Build.NoTargets/3.7.56">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
+    <Version>0.0.1</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Rid Include="$(RuntimeIdentifiers.Split(';'))" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <Target Name="GetItemsToPack" BeforeTargets="_GetPackageFiles">
+    <MSBuild Projects="..\dotnet-cs\dotnet-cs.csproj" Targets="Publish" Properties="RuntimeIdentifier=%(Rid.Identity);_IsPublishing=true" />
+
+    <ItemGroup>
+      <None Include="$(ArtifactsPath)\publish\dotnet-cs\release_%(Rid.Identity)\dotnet-cs.exe" Pack="true" PackagePath="\tools\$(TargetFramework)\%(Rid.Identity)" />
+    </ItemGroup>
+  </Target>
+
+</Project>

@@ -3,6 +3,7 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifiers>win-x86;win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
     <RollForward>LatestMajor</RollForward>
     <RootNamespace>DotNetCs</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -21,7 +22,7 @@
     <PackageTags>csharp run</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <PublishAot Condition=" '$(Configuration)' == 'Debug' ">True</PublishAot>
+    <PublishAot>True</PublishAot>
   </PropertyGroup>
 
   <ItemGroup>
