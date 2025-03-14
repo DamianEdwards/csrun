@@ -45,7 +45,7 @@ Run a C# file from `https://github.com/DamianEdwards/csrun/tree/main/samples/hel
 
 ```shell
 ~/apps
-$ cs https://github.com/DamianEdwards/csrun/tree/main/samples/hello.cs Stephen
+$ cs https://raw.githubusercontent.com/DamianEdwards/csrun/refs/heads/stdin/samples/hello.cs Stephen
 Hello, Stephen!
 ```
 
