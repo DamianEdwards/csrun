@@ -90,7 +90,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
 
         if (!response.IsSuccessStatusCode)
         {
-            Write("failed", ConsoleColor.DarkGray);
+            WriteLine("failed", ConsoleColor.DarkGray);
             WriteError($"Failed to download file from {uri}. Status code: {response.StatusCode}");
             return 1;
         }
@@ -156,10 +156,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
 
 static string ChangeFileExtension(string filePath, string newExtension)
 {
-    var directory = Path.GetDirectoryName(filePath);
-    var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(filePath);
-    var newFileName = $"{fileNameWithoutExtension}{newExtension}";
-    var newFilePath = Path.Join(directory, newFileName);
+    var newFilePath = Path.ChangeExtension(filePath, newExtension);
     File.Move(filePath, newFilePath, true);
     return newFilePath;
 }
