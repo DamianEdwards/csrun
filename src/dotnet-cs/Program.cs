@@ -62,15 +62,12 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
         // Interactive mode: read from stdin until Ctrl+R is pressed
         WriteLine("Reading from standard input. Press Ctrl+R to execute...", ConsoleColor.DarkGray);
 
-        //var input = await ReadStdinUntilRun(cancellationToken);
         var input = await ReadStdinUntilCtrlR(cancellationToken);
 
         if (cancellationToken.IsCancellationRequested)
         {
             return 1;
         }
-
-        WriteLine();
 
         if (string.IsNullOrWhiteSpace(input))
         {
@@ -80,8 +77,6 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
         }
 
         WriteLine("Running...", ConsoleColor.DarkGray);
-
-        //WriteLine($"Code read: {input}");
 
         // Save input to a temporary file
         var tempFilePath = Path.GetTempFileName();
@@ -191,11 +186,22 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
 
 static async Task<string> ReadStdinUntilCtrlR(CancellationToken cancellationToken)
 {
-    var sb = new StringBuilder();
-    var buffer = new List<char>(1024);
+    // Store lines and their positions
+    var lines = new List<List<char>> { new(1024) };
+    var lineIndex = 0;
     var cursorPosition = 0;
+    var startLine = 0; // First visible line on screen
+    var consoleWidth = Console.WindowWidth;
+    var consoleHeight = Console.WindowHeight - 2; // Reserve lines for prompt and bottom margin
+
+    // Remember initial position
+    var initialTop = Console.CursorTop;
+    var initialLeft = Console.CursorLeft;
 
     Console.CursorVisible = true;
+
+    // Draw initial empty prompt
+    RenderScreen(lines, lineIndex, cursorPosition, startLine, initialTop, initialLeft);
 
     while (!cancellationToken.IsCancellationRequested)
     {
@@ -209,71 +215,157 @@ static async Task<string> ReadStdinUntilCtrlR(CancellationToken cancellationToke
 
         if (keyInfo.Key == ConsoleKey.R && keyInfo.Modifiers == ConsoleModifiers.Control)
         {
-            sb.Append([.. buffer]);
             break;
         }
 
-        // Handle arrow keys
-        if (keyInfo.Key == ConsoleKey.LeftArrow && cursorPosition > 0)
+        switch (keyInfo.Key)
         {
-            cursorPosition--;
-            Console.CursorLeft--;
-        }
-        else if (keyInfo.Key == ConsoleKey.RightArrow && cursorPosition < buffer.Count)
-        {
-            cursorPosition++;
-            Console.CursorLeft++;
-        }
-        else if (keyInfo.Key == ConsoleKey.Home && cursorPosition > 0)
-        {
-            cursorPosition = 0;
-            Console.CursorLeft = 0;
-        }
-        else if (keyInfo.Key == ConsoleKey.End && cursorPosition < buffer.Count)
-        {
-            cursorPosition = buffer.Count;
-            Console.CursorLeft = buffer.Count;
-        }
-        else if (keyInfo.Key == ConsoleKey.Backspace && cursorPosition > 0)
-        {
-            cursorPosition--;
-            buffer.RemoveAt(cursorPosition);
+            case ConsoleKey.LeftArrow when cursorPosition > 0:
+                cursorPosition--;
+                break;
 
-            // Redraw the current line
-            var currentPos = Console.CursorLeft - 1;
-            Console.CursorVisible = false;
-            Console.CursorLeft = 0;
-            Console.Write(new string(' ', buffer.Count + 1));
-            Console.CursorLeft = 0;
-            Console.Write(new string([.. buffer]));
-            Console.CursorLeft = currentPos;
-            Console.CursorVisible = true;
-        }
-        else if (!char.IsControl(keyInfo.KeyChar))
-        {
-            buffer.Insert(cursorPosition, keyInfo.KeyChar);
-            cursorPosition++;
+            case ConsoleKey.RightArrow when cursorPosition < lines[lineIndex].Count:
+                cursorPosition++;
+                break;
 
-            // Redraw the current line
-            var currentPos = Console.CursorLeft + 1;
-            Console.CursorVisible = false;
-            Console.CursorLeft = 0;
-            Console.Write(new string([.. buffer]));
-            Console.CursorLeft = currentPos;
-            Console.CursorVisible = true;
+            case ConsoleKey.UpArrow when lineIndex > 0:
+                lineIndex--;
+                cursorPosition = Math.Min(cursorPosition, lines[lineIndex].Count);
+
+                // Scroll up if needed
+                if (lineIndex < startLine)
+                {
+                    startLine = lineIndex;
+                }
+                break;
+
+            case ConsoleKey.DownArrow when lineIndex < lines.Count - 1:
+                lineIndex++;
+                cursorPosition = Math.Min(cursorPosition, lines[lineIndex].Count);
+
+                // Scroll down if needed
+                if (lineIndex >= startLine + consoleHeight)
+                {
+                    startLine = lineIndex - consoleHeight + 1;
+                }
+                break;
+
+            case ConsoleKey.Home:
+                cursorPosition = 0;
+                break;
+
+            case ConsoleKey.End:
+                cursorPosition = lines[lineIndex].Count;
+                break;
+
+            case ConsoleKey.PageUp:
+                // Move up by page height
+                lineIndex = Math.Max(0, lineIndex - consoleHeight);
+                startLine = Math.Max(0, startLine - consoleHeight);
+                cursorPosition = Math.Min(cursorPosition, lines[lineIndex].Count);
+                break;
+
+            case ConsoleKey.PageDown:
+                // Move down by page height
+                lineIndex = Math.Min(lines.Count - 1, lineIndex + consoleHeight);
+                if (lineIndex >= startLine + consoleHeight)
+                    startLine = Math.Max(0, lineIndex - consoleHeight + 1);
+                cursorPosition = Math.Min(cursorPosition, lines[lineIndex].Count);
+                break;
+
+            case ConsoleKey.Backspace when cursorPosition > 0:
+                cursorPosition--;
+                lines[lineIndex].RemoveAt(cursorPosition);
+                break;
+
+            case ConsoleKey.Delete when cursorPosition < lines[lineIndex].Count:
+                lines[lineIndex].RemoveAt(cursorPosition);
+                break;
+
+            case ConsoleKey.Enter:
+                // Extract remainder of current line for new line
+                var remainingChars = new List<char>();
+                if (cursorPosition < lines[lineIndex].Count)
+                {
+                    remainingChars.AddRange(lines[lineIndex].GetRange(cursorPosition, lines[lineIndex].Count - cursorPosition));
+                    lines[lineIndex].RemoveRange(cursorPosition, lines[lineIndex].Count - cursorPosition);
+                }
+
+                // Insert new line after current line
+                lines.Insert(lineIndex + 1, remainingChars);
+                lineIndex++;
+                cursorPosition = 0;
+
+                // Scroll if needed
+                if (lineIndex >= startLine + consoleHeight)
+                    startLine++;
+                break;
+
+            default:
+                if (!char.IsControl(keyInfo.KeyChar))
+                {
+                    lines[lineIndex].Insert(cursorPosition, keyInfo.KeyChar);
+                    cursorPosition++;
+                }
+                break;
         }
-        else if (keyInfo.Key == ConsoleKey.Enter)
-        {
-            // Add current buffer to StringBuilder
-            sb.AppendLine(new string([.. buffer]));
-            buffer.Clear();
-            cursorPosition = 0;
-            Console.WriteLine();
-        }
+
+        RenderScreen(lines, lineIndex, cursorPosition, startLine, initialTop, initialLeft);
     }
 
     Console.CursorVisible = false;
+
+    // Move cursor to the end before returning
+    Console.SetCursorPosition(0, initialTop + Math.Min(lines.Count, consoleHeight));
+    Console.WriteLine();
+
+    // Build the final string
+    var sb = new StringBuilder();
+    for (int i = 0; i < lines.Count; i++)
+    {
+        sb.Append(new string([.. lines[i]]));
+        if (i < lines.Count - 1)
+        {
+            sb.AppendLine();
+        }
+    }
+
     return sb.ToString();
+}
+
+static void RenderScreen(List<List<char>> lines, int currentLine, int cursorPosition,
+                         int startLine, int initialTop, int initialLeft)
+{
+    Console.CursorVisible = false;
+
+    // Save the current window dimensions
+    int consoleWidth = Console.WindowWidth;
+    int visibleHeight = Console.WindowHeight - 2;
+    int endLine = Math.Min(lines.Count, startLine + visibleHeight);
+
+    // Clear the rendering area and reset cursor
+    Console.SetCursorPosition(0, initialTop);
+
+    // Draw visible lines
+    for (int i = startLine; i < endLine; i++)
+    {
+        Console.SetCursorPosition(initialLeft, initialTop + (i - startLine));
+
+        // Clear this line
+        Console.Write(new string(' ', consoleWidth - initialLeft));
+        Console.SetCursorPosition(initialLeft, initialTop + (i - startLine));
+
+        // Write the line content
+        Console.Write(new string([.. lines[i]]));
+    }
+
+    // Position the cursor
+    Console.SetCursorPosition(
+        initialLeft + cursorPosition,
+        initialTop + (currentLine - startLine)
+    );
+
+    Console.CursorVisible = true;
 }
 
 static string ChangeFileExtension(string filePath, string newExtension)
