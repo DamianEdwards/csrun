@@ -220,6 +220,14 @@ static async Task<string> ReadStdinUntilCtrlR(CancellationToken cancellationToke
 
         switch (keyInfo.Key)
         {
+            case ConsoleKey.LeftArrow when keyInfo.Modifiers == ConsoleModifiers.Control:
+                cursorPosition = MoveCursorToPreviousWord(lines[lineIndex], cursorPosition);
+                break;
+
+            case ConsoleKey.RightArrow when keyInfo.Modifiers == ConsoleModifiers.Control:
+                cursorPosition = MoveCursorToNextWord(lines[lineIndex], cursorPosition);
+                break;
+
             case ConsoleKey.LeftArrow when cursorPosition > 0:
                 cursorPosition--;
                 break;
@@ -334,6 +342,86 @@ static async Task<string> ReadStdinUntilCtrlR(CancellationToken cancellationToke
     }
 
     return sb.ToString();
+}
+
+static int MoveCursorToPreviousWord(List<char> line, int cursorPosition)
+{
+    if (cursorPosition <= 0) return 0;
+
+    // First, move back one position so we're looking at the character before the cursor
+    cursorPosition--;
+    
+    // If we're in whitespace, skip all whitespace backward
+    if (char.IsWhiteSpace(line[cursorPosition]    )    )
+    {
+        while (cursorPosition > 0 && char.IsWhiteSpace(line[cursorPosition - 1]   ))
+        {
+            cursorPosition--;
+        }
+        if (!char.IsLetterOrDigit(line[cursorPosition]))
+        {
+            cursorPosition--;
+        }
+    }
+    
+    // If we're in a word, move to its beginning
+    if (cursorPosition > 0 && char.IsLetterOrDigit(line[cursorPosition]))
+    {
+        while (cursorPosition > 0 && char.IsLetterOrDigit(line[cursorPosition - 1]))
+        {
+            cursorPosition--;
+        }
+    }
+    // If we're at a special character, skip until we hit non-whitespace, or beginning
+    else if (cursorPosition > 0 && !char.IsWhiteSpace(line[cursorPosition]))
+    {
+        
+    }
+    
+    return cursorPosition;
+}
+
+static int MoveCursorToNextWord(List<char> line, int cursorPosition)
+{
+    if (cursorPosition >= line.Count) return line.Count;
+
+    // Determine what kind of character we're on
+    bool inWord = char.IsLetterOrDigit(line[cursorPosition]);
+    bool inWhitespace = char.IsWhiteSpace(line[cursorPosition]);
+    
+    // If we're in a word, move to the end of the word
+    if (inWord)
+    {
+        while (cursorPosition < line.Count && char.IsLetterOrDigit(line[cursorPosition]))
+        {
+            cursorPosition++;
+        }
+    }
+    // If we're in whitespace, skip all whitespace
+    else if (inWhitespace)
+    {
+        while (cursorPosition < line.Count && char.IsWhiteSpace(line[cursorPosition]))
+        {
+            cursorPosition++;
+        }
+    }
+    // If we're on a special character, move until non-whitespace
+    else
+    {
+        cursorPosition++;
+        while (cursorPosition < line.Count && char.IsWhiteSpace(line[cursorPosition]))
+        {
+            cursorPosition++;
+        }
+    }
+    
+    // Skip any whitespace after the word or special character
+    while (cursorPosition < line.Count && char.IsWhiteSpace(line[cursorPosition]))
+    {
+        cursorPosition++;
+    }
+    
+    return cursorPosition;
 }
 
 static void RenderScreen(List<List<char>> lines, int currentLine, int cursorPosition, int startLine, int initialTop, int initialLeft)
