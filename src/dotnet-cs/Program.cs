@@ -269,7 +269,9 @@ static async Task<string> ReadStdinUntilCtrlR(CancellationToken cancellationToke
                 // Move down by page height
                 lineIndex = Math.Min(lines.Count - 1, lineIndex + consoleHeight);
                 if (lineIndex >= startLine + consoleHeight)
+                {
                     startLine = Math.Max(0, lineIndex - consoleHeight + 1);
+                }
                 cursorPosition = Math.Min(cursorPosition, lines[lineIndex].Count);
                 break;
 
@@ -298,7 +300,9 @@ static async Task<string> ReadStdinUntilCtrlR(CancellationToken cancellationToke
 
                 // Scroll if needed
                 if (lineIndex >= startLine + consoleHeight)
+                {
                     startLine++;
+                }
                 break;
 
             default:
@@ -317,11 +321,10 @@ static async Task<string> ReadStdinUntilCtrlR(CancellationToken cancellationToke
 
     // Move cursor to the end before returning
     Console.SetCursorPosition(0, initialTop + Math.Min(lines.Count, consoleHeight));
-    Console.WriteLine();
 
     // Build the final string
     var sb = new StringBuilder();
-    for (int i = 0; i < lines.Count; i++)
+    for (var i = 0; i < lines.Count; i++)
     {
         sb.Append(new string([.. lines[i]]));
         if (i < lines.Count - 1)
@@ -333,21 +336,20 @@ static async Task<string> ReadStdinUntilCtrlR(CancellationToken cancellationToke
     return sb.ToString();
 }
 
-static void RenderScreen(List<List<char>> lines, int currentLine, int cursorPosition,
-                         int startLine, int initialTop, int initialLeft)
+static void RenderScreen(List<List<char>> lines, int currentLine, int cursorPosition, int startLine, int initialTop, int initialLeft)
 {
     Console.CursorVisible = false;
 
     // Save the current window dimensions
-    int consoleWidth = Console.WindowWidth;
-    int visibleHeight = Console.WindowHeight - 2;
-    int endLine = Math.Min(lines.Count, startLine + visibleHeight);
+    var consoleWidth = Console.WindowWidth;
+    var visibleHeight = Console.WindowHeight - 2;
+    var endLine = Math.Min(lines.Count, startLine + visibleHeight);
 
     // Clear the rendering area and reset cursor
     Console.SetCursorPosition(0, initialTop);
 
     // Draw visible lines
-    for (int i = startLine; i < endLine; i++)
+    for (var i = startLine; i < endLine; i++)
     {
         Console.SetCursorPosition(initialLeft, initialTop + (i - startLine));
 
@@ -360,10 +362,9 @@ static void RenderScreen(List<List<char>> lines, int currentLine, int cursorPosi
     }
 
     // Position the cursor
-    Console.SetCursorPosition(
-        initialLeft + cursorPosition,
-        initialTop + (currentLine - startLine)
-    );
+    var left = initialLeft + cursorPosition;
+    var top = initialTop + (currentLine - startLine);
+    Console.SetCursorPosition(left, top);
 
     Console.CursorVisible = true;
 }
