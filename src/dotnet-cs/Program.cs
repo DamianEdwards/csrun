@@ -352,9 +352,9 @@ static int MoveCursorToPreviousWord(List<char> line, int cursorPosition)
     cursorPosition--;
     
     // If we're in whitespace, skip all whitespace backward
-    if (char.IsWhiteSpace(line[cursorPosition]    )    )
+    if (char.IsWhiteSpace(line[cursorPosition]))
     {
-        while (cursorPosition > 0 && char.IsWhiteSpace(line[cursorPosition - 1]   ))
+        while (cursorPosition > 0 && char.IsWhiteSpace(line[cursorPosition - 1]))
         {
             cursorPosition--;
         }
@@ -372,12 +372,12 @@ static int MoveCursorToPreviousWord(List<char> line, int cursorPosition)
             cursorPosition--;
         }
     }
-    // If we're at a special character, skip until we hit non-whitespace, or beginning
+    // If we're at a special character just move one position back
     else if (cursorPosition > 0 && !char.IsWhiteSpace(line[cursorPosition]))
     {
-        
+        // We already moved one position back so nothing more to do
     }
-    
+
     return cursorPosition;
 }
 
@@ -386,8 +386,8 @@ static int MoveCursorToNextWord(List<char> line, int cursorPosition)
     if (cursorPosition >= line.Count) return line.Count;
 
     // Determine what kind of character we're on
-    bool inWord = char.IsLetterOrDigit(line[cursorPosition]);
-    bool inWhitespace = char.IsWhiteSpace(line[cursorPosition]);
+    var inWord = char.IsLetterOrDigit(line[cursorPosition]);
+    var inWhitespace = char.IsWhiteSpace(line[cursorPosition]);
     
     // If we're in a word, move to the end of the word
     if (inWord)
