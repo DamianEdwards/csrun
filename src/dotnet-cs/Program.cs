@@ -12,7 +12,7 @@ var minimumSdkVersion = new SemanticVersion(10, 0, 100, "preview.3.25163.13");
 
 var targetArgument = new Argument<string?>("TARGETAPPFILE")
 {
-    Description = "The file path or URI for the C# file to run.",
+    Description = "The file path or URI for the C# file to run. Pass '-' to enter interactive terminal mode.",
     Arity = ArgumentArity.ZeroOrOne
 };
 
