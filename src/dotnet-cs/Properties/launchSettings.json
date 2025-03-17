@@ -2,7 +2,7 @@
   "profiles": {
     "dotnet-run": {
       "commandName": "Project",
-      "commandLineArgs": "-"
+      "commandLineArgs": "https://raw.githubusercontent.com/DamianEdwards/csrun/refs/heads/main/samples/hello.cs"
     }
   }
 }
