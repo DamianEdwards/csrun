@@ -21,6 +21,10 @@ cs [<TARGETAPPFILE> [<APPARGS>...]]
 ```
 
 ```shell
+cs -
+```
+
+```shell
 cs [<APPARGS>...] < <CSFILE>
 ```
 
@@ -28,7 +32,7 @@ cs [<APPARGS>...] < <CSFILE>
 
 Name  | Description
 ------|------------------------------------------------
-`<TARGETAPPFILE>` | The file path or URI for the C# file to run.
+`<TARGETAPPFILE>` | The file path or URI for the C# file to run. Pass '-' to enter interactive terminal mode.
 `<APPARGS>` | Any arguments that should be passed to the C# app.
 
 ### Examples
@@ -68,5 +72,15 @@ Pipe C# code from shell command output to `cs` via stdin:
 
 ```shell
 $ cat hello.cs | cs
+Hello, world!
+```
+
+Enter interactive stdin mode to just type C# straight into the terminal:
+
+```shell
+$ cs -
+Reading from standard input. Press Ctrl+R to execute..
+Console.WriteLine("Hello, world!");
+Running...
 Hello, world!
 ```
