@@ -1,8 +1,8 @@
 {
   "profiles": {
-    "dotnet-purge": {
+    "dotnet-run": {
       "commandName": "Project",
-      "commandLineArgs": "https://raw.githubusercontent.com/DamianEdwards/runfile/refs/heads/main/flat/hello.cs"
+      "commandLineArgs": "-"
     }
   }
 }

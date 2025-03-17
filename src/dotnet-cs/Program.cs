@@ -1,4 +1,5 @@
-﻿using System.CommandLine;
+﻿using System;
+using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.Diagnostics;
 using System.Net.Http.Json;
@@ -9,19 +10,19 @@ using NuGet.Versioning;
 
 var minimumSdkVersion = new SemanticVersion(10, 0, 100, "preview.3.25163.13");
 
-var targetArgument = new CliArgument<string?>("TARGETAPPFILE")
+var targetArgument = new Argument<string?>("TARGETAPPFILE")
 {
     Description = "The file path or URI for the C# file to run.",
     Arity = ArgumentArity.ZeroOrOne
 };
 
-var appArgsArgument = new CliArgument<string[]?>("APPARGS")
+var appArgsArgument = new Argument<string[]?>("APPARGS")
 {
     Description = "The arguments to pass to the C# file.",
     Arity = ArgumentArity.ZeroOrMore
 };
 
-var rootCommand = new CliRootCommand("Runs C# from a file, URI, or stdin.")
+var rootCommand = new RootCommand("Runs C# from a file, URI, or stdin.")
 {
     targetArgument,
     appArgsArgument
@@ -30,7 +31,11 @@ rootCommand.SetAction(RunCommand);
 
 VersionOptionAction.Apply(rootCommand);
 
-var result = rootCommand.Parse(args);
+var config = new CommandLineConfiguration(rootCommand)
+{
+    ProcessTerminationTimeout = Debugger.IsAttached ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(30)
+};
+var result = rootCommand.Parse(args, config);
 var exitCode = await result.InvokeAsync();
 
 return exitCode;
@@ -52,7 +57,43 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
         appArgs.AddRange(appArgsValue);
     }
 
-    if (Console.IsInputRedirected)
+    if (targetValue == "-")
+    {
+        // Interactive mode: read from stdin until Ctrl+R is pressed
+        WriteLine("Reading from standard input. Press Ctrl+R to execute...", ConsoleColor.DarkGray);
+
+        //var input = await ReadStdinUntilRun(cancellationToken);
+        var input = await ReadStdinUntilCtrlR(cancellationToken);
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return 1;
+        }
+
+        WriteLine();
+
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            WriteLine();
+            WriteError("No input provided.");
+            return 1;
+        }
+
+        WriteLine("Running...", ConsoleColor.DarkGray);
+
+        //WriteLine($"Code read: {input}");
+
+        // Save input to a temporary file
+        var tempFilePath = Path.GetTempFileName();
+        await using (var fileStream = File.Create(tempFilePath))
+        {
+            using var writer = new StreamWriter(fileStream);
+            await writer.WriteAsync(input.AsMemory(), default);
+        }
+
+        targetFilePath = ChangeFileExtension(tempFilePath, ".cs");
+    }
+    else if (Console.IsInputRedirected)
     {
         // Read from stdin if no target file is specified
         var input = await Console.In.ReadToEndAsync(cancellationToken);
@@ -72,12 +113,6 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
         }
 
         targetFilePath = ChangeFileExtension(tempFilePath, ".cs");
-
-        // Insert the targetValue arg as an app arg
-        if (targetValue is not null)
-        {
-            appArgs.Insert(0, targetValue);
-        }
     }
     else if ((targetValue?.StartsWith("https://", StringComparison.OrdinalIgnoreCase) == true
               || targetValue?.StartsWith("http://", StringComparison.OrdinalIgnoreCase) == true)
@@ -152,6 +187,93 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
     }
 
     return exitCode;
+}
+
+static async Task<string> ReadStdinUntilCtrlR(CancellationToken cancellationToken)
+{
+    var sb = new StringBuilder();
+    var buffer = new List<char>(1024);
+    var cursorPosition = 0;
+
+    Console.CursorVisible = true;
+
+    while (!cancellationToken.IsCancellationRequested)
+    {
+        if (!Console.KeyAvailable)
+        {
+            await Task.Delay(50, cancellationToken);
+            continue;
+        }
+
+        var keyInfo = Console.ReadKey(intercept: true);
+
+        if (keyInfo.Key == ConsoleKey.R && keyInfo.Modifiers == ConsoleModifiers.Control)
+        {
+            sb.Append([.. buffer]);
+            break;
+        }
+
+        // Handle arrow keys
+        if (keyInfo.Key == ConsoleKey.LeftArrow && cursorPosition > 0)
+        {
+            cursorPosition--;
+            Console.CursorLeft--;
+        }
+        else if (keyInfo.Key == ConsoleKey.RightArrow && cursorPosition < buffer.Count)
+        {
+            cursorPosition++;
+            Console.CursorLeft++;
+        }
+        else if (keyInfo.Key == ConsoleKey.Home && cursorPosition > 0)
+        {
+            cursorPosition = 0;
+            Console.CursorLeft = 0;
+        }
+        else if (keyInfo.Key == ConsoleKey.End && cursorPosition < buffer.Count)
+        {
+            cursorPosition = buffer.Count;
+            Console.CursorLeft = buffer.Count;
+        }
+        else if (keyInfo.Key == ConsoleKey.Backspace && cursorPosition > 0)
+        {
+            cursorPosition--;
+            buffer.RemoveAt(cursorPosition);
+
+            // Redraw the current line
+            var currentPos = Console.CursorLeft - 1;
+            Console.CursorVisible = false;
+            Console.CursorLeft = 0;
+            Console.Write(new string(' ', buffer.Count + 1));
+            Console.CursorLeft = 0;
+            Console.Write(new string([.. buffer]));
+            Console.CursorLeft = currentPos;
+            Console.CursorVisible = true;
+        }
+        else if (!char.IsControl(keyInfo.KeyChar))
+        {
+            buffer.Insert(cursorPosition, keyInfo.KeyChar);
+            cursorPosition++;
+
+            // Redraw the current line
+            var currentPos = Console.CursorLeft + 1;
+            Console.CursorVisible = false;
+            Console.CursorLeft = 0;
+            Console.Write(new string([.. buffer]));
+            Console.CursorLeft = currentPos;
+            Console.CursorVisible = true;
+        }
+        else if (keyInfo.Key == ConsoleKey.Enter)
+        {
+            // Add current buffer to StringBuilder
+            sb.AppendLine(new string([.. buffer]));
+            buffer.Clear();
+            cursorPosition = 0;
+            Console.WriteLine();
+        }
+    }
+
+    Console.CursorVisible = false;
+    return sb.ToString();
 }
 
 static string ChangeFileExtension(string filePath, string newExtension)
@@ -327,9 +449,9 @@ internal class NuGetVersions
     public string[] Versions { get; set; } = [];
 }
 
-internal sealed class VersionOptionAction : SynchronousCliAction
+internal sealed class VersionOptionAction : SynchronousCommandLineAction
 {
-    public static void Apply(CliRootCommand command)
+    public static void Apply(RootCommand command)
     {
         var versionOption = command.Options.FirstOrDefault(o => o.Name == "--version");
         if (versionOption is not null)
