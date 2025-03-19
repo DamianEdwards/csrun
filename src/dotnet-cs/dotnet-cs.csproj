@@ -9,7 +9,7 @@
     <Nullable>enable</Nullable>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>cs</ToolCommandName>
-    <VersionPrefix>0.0.6</VersionPrefix>
+    <VersionPrefix>0.0.7</VersionPrefix>
     <VersionSuffix Condition=" '$(Configuration)' == 'Debug' ">dev</VersionSuffix>
     <Authors>Damian Edwards</Authors>
     <Copyright>Copyright © Damian Edwards</Copyright>
@@ -27,6 +27,7 @@
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
     <PackageReference Include="System.CommandLine" Version="2.0.0-*" />
+    <PackageReference Include="RadLine" Version="0.8.0" />
     <PackageReference Include="NuGet.Versioning" Version="6.13.2" />
   </ItemGroup>
 
