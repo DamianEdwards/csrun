@@ -6,7 +6,10 @@ using System.Net.Http.Json;
 using System.Reflection;
 using System.Text;
 using System.Text.Json.Serialization;
+using DotNetCs;
 using NuGet.Versioning;
+using RadLine;
+using Spectre.Console;
 
 var minimumSdkVersion = new SemanticVersion(10, 0, 100, "preview.3.25163.13");
 
@@ -22,10 +25,21 @@ var appArgsArgument = new Argument<string[]?>("APPARGS")
     Arity = ArgumentArity.ZeroOrMore
 };
 
+#if DEBUG
+var debugOption = new Option<bool>("--debug", "-d")
+{
+    Description = "Enable debug mode.",
+    Hidden = true
+};
+#endif
+
 var rootCommand = new RootCommand("Runs C# from a file, URI, or stdin.")
 {
     targetArgument,
-    appArgsArgument
+    appArgsArgument,
+#if DEBUG
+    debugOption
+#endif
 };
 rootCommand.SetAction(RunCommand);
 
@@ -42,6 +56,13 @@ return exitCode;
 
 async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellationToken)
 {
+#if DEBUG
+    if (parseResult.GetValue(debugOption))
+    {
+        Debugger.Launch();
+    }
+#endif
+
     var detectNewerVersionTask = Task.Run(() => DetectNewerVersion(cancellationToken), cancellationToken);
     var validateSdkVersionTask = Task.Run(() => ValidateMinimumSdkVersion(minimumSdkVersion, cancellationToken), cancellationToken);
 
@@ -59,10 +80,17 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
 
     if (targetValue == "-")
     {
-        // Interactive mode: read from stdin until Ctrl+R is pressed
-        WriteLine("Reading from standard input. Press Ctrl+R to execute...", ConsoleColor.DarkGray);
+        var editor = new LineEditor()
+        {
+            MultiLine = true,
+            Prompt = new LineNumberPrompt(new Style(Color.LightSkyBlue1)),
+            Highlighter = new CSharpHighlighter()
+        };
 
-        var input = await ReadStdinUntilCtrlR(cancellationToken);
+        WriteLine("Interactive C# editor! Press SHIFT+ENTER to insert a new line. Press ENTER to run.", ConsoleColor.DarkGray);
+
+        // Read a line (or many)
+        var input = await editor.ReadLine(cancellationToken);
 
         if (cancellationToken.IsCancellationRequested)
         {
@@ -159,7 +187,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
         WriteLine();
         WriteLine($"This tool requires .NET SDK version {minimumSdkVersion} or higher but current version is {currentSdkVersion}.", ConsoleColor.Red);
         return 1;
-    }    
+    }
 
     // Run the target file
     var exitCode = await DotnetCli.Run(targetFilePath, appArgs, cancellationToken);
@@ -182,279 +210,6 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
     }
 
     return exitCode;
-}
-
-static async Task<string> ReadStdinUntilCtrlR(CancellationToken cancellationToken)
-{
-    // Store lines and their positions
-    var lines = new List<List<char>> { new(1024) };
-    var lineIndex = 0;
-    var cursorPosition = 0;
-    var startLine = 0; // First visible line on screen
-    var consoleWidth = Console.WindowWidth;
-    var consoleHeight = Console.WindowHeight - 2; // Reserve lines for prompt and bottom margin
-
-    // Remember initial position
-    var initialTop = Console.CursorTop;
-    var initialLeft = Console.CursorLeft;
-
-    Console.CursorVisible = true;
-
-    // Draw initial empty prompt
-    RenderScreen(lines, lineIndex, cursorPosition, startLine, initialTop, initialLeft);
-
-    while (!cancellationToken.IsCancellationRequested)
-    {
-        if (!Console.KeyAvailable)
-        {
-            await Task.Delay(50, cancellationToken);
-            continue;
-        }
-
-        var keyInfo = Console.ReadKey(intercept: true);
-
-        if (keyInfo.Key == ConsoleKey.R && keyInfo.Modifiers == ConsoleModifiers.Control)
-        {
-            break;
-        }
-
-        switch (keyInfo.Key)
-        {
-            case ConsoleKey.LeftArrow when keyInfo.Modifiers == ConsoleModifiers.Control:
-                cursorPosition = MoveCursorToPreviousWord(lines[lineIndex], cursorPosition);
-                break;
-
-            case ConsoleKey.RightArrow when keyInfo.Modifiers == ConsoleModifiers.Control:
-                cursorPosition = MoveCursorToNextWord(lines[lineIndex], cursorPosition);
-                break;
-
-            case ConsoleKey.LeftArrow when cursorPosition > 0:
-                cursorPosition--;
-                break;
-
-            case ConsoleKey.RightArrow when cursorPosition < lines[lineIndex].Count:
-                cursorPosition++;
-                break;
-
-            case ConsoleKey.UpArrow when lineIndex > 0:
-                lineIndex--;
-                cursorPosition = Math.Min(cursorPosition, lines[lineIndex].Count);
-
-                // Scroll up if needed
-                if (lineIndex < startLine)
-                {
-                    startLine = lineIndex;
-                }
-                break;
-
-            case ConsoleKey.DownArrow when lineIndex < lines.Count - 1:
-                lineIndex++;
-                cursorPosition = Math.Min(cursorPosition, lines[lineIndex].Count);
-
-                // Scroll down if needed
-                if (lineIndex >= startLine + consoleHeight)
-                {
-                    startLine = lineIndex - consoleHeight + 1;
-                }
-                break;
-
-            case ConsoleKey.Home:
-                cursorPosition = 0;
-                break;
-
-            case ConsoleKey.End:
-                cursorPosition = lines[lineIndex].Count;
-                break;
-
-            case ConsoleKey.PageUp:
-                // Move up by page height
-                lineIndex = Math.Max(0, lineIndex - consoleHeight);
-                startLine = Math.Max(0, startLine - consoleHeight);
-                cursorPosition = Math.Min(cursorPosition, lines[lineIndex].Count);
-                break;
-
-            case ConsoleKey.PageDown:
-                // Move down by page height
-                lineIndex = Math.Min(lines.Count - 1, lineIndex + consoleHeight);
-                if (lineIndex >= startLine + consoleHeight)
-                {
-                    startLine = Math.Max(0, lineIndex - consoleHeight + 1);
-                }
-                cursorPosition = Math.Min(cursorPosition, lines[lineIndex].Count);
-                break;
-
-            case ConsoleKey.Backspace when cursorPosition > 0:
-                cursorPosition--;
-                lines[lineIndex].RemoveAt(cursorPosition);
-                break;
-
-            case ConsoleKey.Delete when cursorPosition < lines[lineIndex].Count:
-                lines[lineIndex].RemoveAt(cursorPosition);
-                break;
-
-            case ConsoleKey.Enter:
-                // Extract remainder of current line for new line
-                var remainingChars = new List<char>();
-                if (cursorPosition < lines[lineIndex].Count)
-                {
-                    remainingChars.AddRange(lines[lineIndex].GetRange(cursorPosition, lines[lineIndex].Count - cursorPosition));
-                    lines[lineIndex].RemoveRange(cursorPosition, lines[lineIndex].Count - cursorPosition);
-                }
-
-                // Insert new line after current line
-                lines.Insert(lineIndex + 1, remainingChars);
-                lineIndex++;
-                cursorPosition = 0;
-
-                // Scroll if needed
-                if (lineIndex >= startLine + consoleHeight)
-                {
-                    startLine++;
-                }
-                break;
-
-            default:
-                if (!char.IsControl(keyInfo.KeyChar))
-                {
-                    lines[lineIndex].Insert(cursorPosition, keyInfo.KeyChar);
-                    cursorPosition++;
-                }
-                break;
-        }
-
-        RenderScreen(lines, lineIndex, cursorPosition, startLine, initialTop, initialLeft);
-    }
-
-    Console.CursorVisible = false;
-
-    // Move cursor to the end before returning
-    Console.SetCursorPosition(0, initialTop + Math.Min(lines.Count, consoleHeight));
-
-    // Build the final string
-    var sb = new StringBuilder();
-    for (var i = 0; i < lines.Count; i++)
-    {
-        sb.Append(new string([.. lines[i]]));
-        if (i < lines.Count - 1)
-        {
-            sb.AppendLine();
-        }
-    }
-
-    return sb.ToString();
-}
-
-static int MoveCursorToPreviousWord(List<char> line, int cursorPosition)
-{
-    if (cursorPosition <= 0) return 0;
-
-    // First, move back one position so we're looking at the character before the cursor
-    cursorPosition--;
-    
-    // If we're in whitespace, skip all whitespace backward
-    if (char.IsWhiteSpace(line[cursorPosition]))
-    {
-        while (cursorPosition > 0 && char.IsWhiteSpace(line[cursorPosition - 1]))
-        {
-            cursorPosition--;
-        }
-        if (!char.IsLetterOrDigit(line[cursorPosition]))
-        {
-            cursorPosition--;
-        }
-    }
-    
-    // If we're in a word, move to its beginning
-    if (cursorPosition > 0 && char.IsLetterOrDigit(line[cursorPosition]))
-    {
-        while (cursorPosition > 0 && char.IsLetterOrDigit(line[cursorPosition - 1]))
-        {
-            cursorPosition--;
-        }
-    }
-    // If we're at a special character just move one position back
-    else if (cursorPosition > 0 && !char.IsWhiteSpace(line[cursorPosition]))
-    {
-        // We already moved one position back so nothing more to do
-    }
-
-    return cursorPosition;
-}
-
-static int MoveCursorToNextWord(List<char> line, int cursorPosition)
-{
-    if (cursorPosition >= line.Count) return line.Count;
-
-    // Determine what kind of character we're on
-    var inWord = char.IsLetterOrDigit(line[cursorPosition]);
-    var inWhitespace = char.IsWhiteSpace(line[cursorPosition]);
-    
-    // If we're in a word, move to the end of the word
-    if (inWord)
-    {
-        while (cursorPosition < line.Count && char.IsLetterOrDigit(line[cursorPosition]))
-        {
-            cursorPosition++;
-        }
-    }
-    // If we're in whitespace, skip all whitespace
-    else if (inWhitespace)
-    {
-        while (cursorPosition < line.Count && char.IsWhiteSpace(line[cursorPosition]))
-        {
-            cursorPosition++;
-        }
-    }
-    // If we're on a special character, move until non-whitespace
-    else
-    {
-        cursorPosition++;
-        while (cursorPosition < line.Count && char.IsWhiteSpace(line[cursorPosition]))
-        {
-            cursorPosition++;
-        }
-    }
-    
-    // Skip any whitespace after the word or special character
-    while (cursorPosition < line.Count && char.IsWhiteSpace(line[cursorPosition]))
-    {
-        cursorPosition++;
-    }
-    
-    return cursorPosition;
-}
-
-static void RenderScreen(List<List<char>> lines, int currentLine, int cursorPosition, int startLine, int initialTop, int initialLeft)
-{
-    Console.CursorVisible = false;
-
-    // Save the current window dimensions
-    var consoleWidth = Console.WindowWidth;
-    var visibleHeight = Console.WindowHeight - 2;
-    var endLine = Math.Min(lines.Count, startLine + visibleHeight);
-
-    // Clear the rendering area and reset cursor
-    Console.SetCursorPosition(0, initialTop);
-
-    // Draw visible lines
-    for (var i = startLine; i < endLine; i++)
-    {
-        Console.SetCursorPosition(initialLeft, initialTop + (i - startLine));
-
-        // Clear this line
-        Console.Write(new string(' ', consoleWidth - initialLeft));
-        Console.SetCursorPosition(initialLeft, initialTop + (i - startLine));
-
-        // Write the line content
-        Console.Write(new string([.. lines[i]]));
-    }
-
-    // Position the cursor
-    var left = initialLeft + cursorPosition;
-    var top = initialTop + (currentLine - startLine);
-    Console.SetCursorPosition(left, top);
-
-    Console.CursorVisible = true;
 }
 
 static string ChangeFileExtension(string filePath, string newExtension)
