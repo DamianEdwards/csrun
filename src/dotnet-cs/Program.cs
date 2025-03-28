@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json.Serialization;
 using DotNetCs;
+using Microsoft.Extensions.DependencyInjection;
 using NuGet.Versioning;
 using RadLine;
 using Spectre.Console;
@@ -25,6 +26,11 @@ var appArgsArgument = new Argument<string[]?>("APPARGS")
     Arity = ArgumentArity.ZeroOrMore
 };
 
+var editOption = new Option<bool>("--edit")
+{
+    Description = "Edit content in an interactive terminal C# editor."
+};
+
 #if DEBUG
 var debugOption = new Option<bool>("--debug", "-d")
 {
@@ -37,6 +43,7 @@ var rootCommand = new RootCommand("Runs C# from a file, URI, or stdin.")
 {
     targetArgument,
     appArgsArgument,
+    editOption,
 #if DEBUG
     debugOption
 #endif
@@ -68,6 +75,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
 
     var targetValue = parseResult.GetValue(targetArgument);
     var appArgsValue = parseResult.GetValue(appArgsArgument);
+    var editOptionValue = parseResult.GetValue(editOption);
 
     string? targetFilePath = null;
     List<string> appArgs = [];
@@ -78,45 +86,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
         appArgs.AddRange(appArgsValue);
     }
 
-    if (targetValue == "-")
-    {
-        var editor = new LineEditor()
-        {
-            MultiLine = true,
-            Prompt = new LineNumberPrompt(new Style(Color.LightSkyBlue1)),
-            Highlighter = new CSharpHighlighter()
-        };
-
-        WriteLine("Interactive C# editor! Press SHIFT+ENTER to insert a new line. Press ENTER to run.", ConsoleColor.DarkGray);
-
-        // Read a line (or many)
-        var input = await editor.ReadLine(cancellationToken);
-
-        if (cancellationToken.IsCancellationRequested)
-        {
-            return 1;
-        }
-
-        if (string.IsNullOrWhiteSpace(input))
-        {
-            WriteLine();
-            WriteError("No input provided.");
-            return 1;
-        }
-
-        WriteLine("Running...", ConsoleColor.DarkGray);
-
-        // Save input to a temporary file
-        var tempFilePath = Path.GetTempFileName();
-        await using (var fileStream = File.Create(tempFilePath))
-        {
-            using var writer = new StreamWriter(fileStream);
-            await writer.WriteAsync(input.AsMemory(), default);
-        }
-
-        targetFilePath = ChangeFileExtension(tempFilePath, ".cs");
-    }
-    else if (Console.IsInputRedirected)
+    if (Console.IsInputRedirected)
     {
         // Read from stdin if no target file is specified
         var input = await Console.In.ReadToEndAsync(cancellationToken);
@@ -168,7 +138,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
         // If it's a local file, use the provided path
         targetFilePath = Path.GetFullPath(targetValue);
     }
-    else
+    else if (targetValue != "-")
     {
         if (string.IsNullOrEmpty(targetValue))
         {
@@ -181,6 +151,69 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
         return 1;
     }
 
+    if (editOptionValue || targetValue == "-")
+    {
+        var fileContent = targetFilePath is not null
+            ? await File.ReadAllTextAsync(targetFilePath, cancellationToken)
+            : null;
+        var editorState = new EditorState { FilePath = targetFilePath, Content = fileContent };
+        var serviceProvider = new ServiceCollection()
+            .AddSingleton(editorState)
+            .BuildServiceProvider();
+
+        var saveInstructions = fileContent is not null
+            ? ", CTRL+ALT+S to save"
+            : "";
+        WriteLine($"Interactive C# editor! Press CTRL+R to run{saveInstructions}, CTRL+C to exit.", ConsoleColor.DarkGray);
+
+        var editor = new LineEditor(provider: serviceProvider)
+        {
+            MultiLine = true,
+            Prompt = new LineNumberPrompt(new Style(Color.LightSkyBlue1)),
+            Highlighter = new CSharpHighlighter(),
+            Text = editorState.Content ?? ""
+        };
+
+        editor.KeyBindings.Remove(ConsoleKey.Enter);
+        editor.KeyBindings.Remove(ConsoleKey.Enter, ConsoleModifiers.Shift);
+
+        editor.KeyBindings.Add<NewLineCommand>(ConsoleKey.Enter);
+        editor.KeyBindings.Add<SubmitCommand>(ConsoleKey.R, ConsoleModifiers.Control);
+        editor.KeyBindings.Add<SaveCommand>(ConsoleKey.S, ConsoleModifiers.Control | ConsoleModifiers.Alt);
+
+        editorState.Editor = editor;
+
+        // Read a line (or many)
+        editorState.Content = await editor.ReadLine(cancellationToken);
+
+        if (editorState.Content is null || cancellationToken.IsCancellationRequested)
+        {
+            return 1;
+        }
+
+        if (string.IsNullOrWhiteSpace(editorState.Content))
+        {
+            WriteLine();
+            WriteError("No input provided.");
+            return 1;
+        }
+
+        if (targetFilePath is null)
+        {
+            // Save input to a temporary file
+            var tempFilePath = Path.GetTempFileName();
+            await using (var fileStream = File.Create(tempFilePath))
+            {
+                using var writer = new StreamWriter(fileStream);
+                await writer.WriteAsync(editorState.Content.AsMemory(), default);
+            }
+
+            targetFilePath = ChangeFileExtension(tempFilePath, ".cs");
+        }
+
+        WriteLine("Running...", ConsoleColor.DarkGray);
+    }
+
     var (hasMinRequiredSdkVersion, currentSdkVersion) = await validateSdkVersionTask;
     if (!hasMinRequiredSdkVersion)
     {
@@ -190,7 +223,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
     }
 
     // Run the target file
-    var exitCode = await DotnetCli.Run(targetFilePath, appArgs, cancellationToken);
+    var exitCode = await DotnetCli.Run(targetFilePath!, appArgs, cancellationToken);
 
     // Process the detect newer version task
     try
@@ -417,4 +450,26 @@ internal sealed class VersionOptionAction : SynchronousCommandLineAction
 
         return assembly.GetName().Version?.ToString();
     }
+}
+
+internal class SaveCommand : LineEditorCommand
+{
+    public override void Execute(LineEditorContext context)
+    {
+        using var inlineMessage = context.ShowInlineMessage(new("[bold yellow]: Saving file :[/]"));
+
+        var editorState = context.GetRequiredService<EditorState>();
+
+        Debug.Assert(!string.IsNullOrEmpty(editorState.FilePath));
+        Debug.Assert(editorState.Editor is not null);
+
+        File.WriteAllText(editorState.FilePath, editorState.Editor.Text);
+    }
+}
+
+internal class EditorState
+{
+    public LineEditor? Editor { get; set; }
+    public string? FilePath { get; set; }
+    public string? Content { get; set; }
 }
