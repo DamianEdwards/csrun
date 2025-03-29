@@ -91,6 +91,11 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
 
     if (Console.IsInputRedirected)
     {
+        if (editOptionValue)
+        {
+            WriteLine("Note: Cannot use --edit option with stdin", ConsoleColor.DarkYellow);
+        }
+
         // Read from stdin if no target file is specified
         var input = await Console.In.ReadToEndAsync(cancellationToken);
 
