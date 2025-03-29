@@ -4,8 +4,8 @@
       "commandName": "Project",
       //"commandLineArgs": "https://raw.githubusercontent.com/DamianEdwards/csrun/refs/heads/main/samples/hello.cs"
       //"commandLineArgs": "-"
-      "commandLineArgs": "..\\..\\samples\\hello.cs --edit",
-      "workingDirectory": "$(ProjectDir)"
+      "commandLineArgs": "hello.cs",
+      "workingDirectory": "$(ProjectDirectory)..\\..\\samples"
     }
   }
 }
