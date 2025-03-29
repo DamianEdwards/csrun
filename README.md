@@ -35,6 +35,15 @@ Name  | Description
 `<TARGETAPPFILE>` | The file path or URI for the C# file to run. Pass '-' to enter interactive terminal mode.
 `<APPARGS>` | Any arguments that should be passed to the C# app.
 
+### Options
+
+Name  | Description
+------|------------------------------------------------
+`-?`, `-h`, `--help` | Show help information.
+`--version` | Show version information.
+`--edit` | Edit content in an interactive terminal C# editor
+
+
 ### Examples
 
 Run a C# file named `hello.cs` in the current directory:
@@ -82,5 +91,16 @@ $ cs -
 Reading from standard input. Press Ctrl+R to execute..
 Console.WriteLine("Hello, world!");
 Running...
+Hello, world!
+```
+
+Edit a C# file named `hello.cs` in the current directory:
+
+```shell
+~/apps
+$ cs hello.cs --edit
+Interactive C# editor! Press CTRL+R to run, CTRL+ALT+S to save, CTRL+Q to quit.
+01 var name = args.Length > 0 ? args[0] : "World";
+02 Console.WriteLine($"Hello, {name}!");
 Hello, world!
 ```
