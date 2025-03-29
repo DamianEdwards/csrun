@@ -170,9 +170,6 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
         var saveInstructions = canSave ? ", CTRL+ALT+S to save" : "";
         WriteLine($"Interactive C# editor! Press CTRL+R to run{saveInstructions}, CTRL+Q to quit.", ConsoleColor.DarkGray);
 
-        var startWindowTop = Console.WindowTop;
-        var startCursorTop = Console.CursorTop;
-
         while (true)
         {
             var editor = new LineEditor(provider: serviceProvider)
@@ -225,20 +222,16 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
             }
 
             // Clear the old editor instance
+            var lineCount = editorState.Content.GetLineCount();
             var currentCursorTop = Console.CursorTop;
-            var currentWindowTop = Console.WindowTop;
-            var lineCount = currentCursorTop - startCursorTop + 2;
+
             AnsiConsole.Cursor.Hide();
-            AnsiConsole.Cursor.SetPosition(0, startCursorTop + 1);
-            for (var i = 0; i < lineCount; i++)
+            for (var i = 0; i <= lineCount; i++)
             {
-                Console.Write(new string(' ', Console.WindowWidth));
-                if (i + 1 < lineCount)
-                {
-                    Console.WriteLine();
-                }
+                Console.SetCursorPosition(0, currentCursorTop);
+                Console.Write(new string(' ', Console.BufferWidth));
+                currentCursorTop--;
             }
-            AnsiConsole.Cursor.SetPosition(0, startCursorTop);
             AnsiConsole.Cursor.Show();
 
             editorState.Result = null;
