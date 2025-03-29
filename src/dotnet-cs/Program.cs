@@ -22,13 +22,13 @@ var targetArgument = new Argument<string?>("TARGETAPPFILE")
 
 var appArgsArgument = new Argument<string[]?>("APPARGS")
 {
-    Description = "The arguments to pass to the C# file.",
+    Description = "The arguments to pass to the C# file",
     Arity = ArgumentArity.ZeroOrMore
 };
 
 var editOption = new Option<bool>("--edit")
 {
-    Description = "Edit content in an interactive terminal C# editor."
+    Description = "Edit content in an interactive terminal C# editor"
 };
 
 #if DEBUG
@@ -39,7 +39,7 @@ var debugOption = new Option<bool>("--debug", "-d")
 };
 #endif
 
-var rootCommand = new RootCommand("Runs C# from a file, URI, or stdin.")
+var rootCommand = new RootCommand("Runs C# from a file, URI, or stdin")
 {
     targetArgument,
     appArgsArgument,
@@ -144,7 +144,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
         canSave = true;
         saveChangesOnRun = true;
     }
-    else if (targetValue != "-")
+    else if (!canEdit)
     {
         if (string.IsNullOrEmpty(targetValue))
         {
@@ -155,6 +155,11 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
             WriteError($"File not found: {targetValue}");
         }
         return 1;
+    }
+    else
+    {
+        // In editor mode
+        saveChangesOnRun = true;
     }
 
     if (canEdit)
