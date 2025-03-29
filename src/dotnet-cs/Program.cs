@@ -76,6 +76,9 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
     var targetValue = parseResult.GetValue(targetArgument);
     var appArgsValue = parseResult.GetValue(appArgsArgument);
     var editOptionValue = parseResult.GetValue(editOption);
+    var canEdit = !Console.IsInputRedirected && (editOptionValue || targetValue == "-");
+    var canSave = false;
+    var saveChangesOnRun = false;
 
     string? targetFilePath = null;
     List<string> appArgs = [];
@@ -131,12 +134,15 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
             await response.Content.CopyToAsync(fileStream, cancellationToken);
         }
 
+        saveChangesOnRun = true;
         targetFilePath = ChangeFileExtension(tempFilePath, ".cs");
     }
     else if (File.Exists(targetValue))
     {
         // If it's a local file, use the provided path
         targetFilePath = Path.GetFullPath(targetValue);
+        canSave = true;
+        saveChangesOnRun = true;
     }
     else if (targetValue != "-")
     {
@@ -151,40 +157,92 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
         return 1;
     }
 
-    if (editOptionValue || targetValue == "-")
+    if (canEdit)
     {
         var fileContent = targetFilePath is not null
             ? await File.ReadAllTextAsync(targetFilePath, cancellationToken)
             : null;
-        var editorState = new EditorState { FilePath = targetFilePath, Content = fileContent };
+        var editorState = new EditorState { Content = fileContent };
         var serviceProvider = new ServiceCollection()
             .AddSingleton(editorState)
             .BuildServiceProvider();
 
-        var saveInstructions = fileContent is not null
-            ? ", CTRL+ALT+S to save"
-            : "";
-        WriteLine($"Interactive C# editor! Press CTRL+R to run{saveInstructions}, CTRL+C to exit.", ConsoleColor.DarkGray);
+        var saveInstructions = canSave ? ", CTRL+ALT+S to save" : "";
+        WriteLine($"Interactive C# editor! Press CTRL+R to run{saveInstructions}, CTRL+Q to quit.", ConsoleColor.DarkGray);
 
-        var editor = new LineEditor(provider: serviceProvider)
+        var startWindowTop = Console.WindowTop;
+        var startCursorTop = Console.CursorTop;
+
+        while (true)
         {
-            MultiLine = true,
-            Prompt = new LineNumberPrompt(new Style(Color.LightSkyBlue1)),
-            Highlighter = new CSharpHighlighter(),
-            Text = editorState.Content ?? ""
-        };
+            var editor = new LineEditor(provider: serviceProvider)
+            {
+                MultiLine = true,
+                Prompt = new LineNumberPrompt(new Style(Color.LightSkyBlue1)),
+                Highlighter = new CSharpHighlighter(),
+                Text = editorState.Content ?? ""
+            };
 
-        editor.KeyBindings.Remove(ConsoleKey.Enter);
-        editor.KeyBindings.Remove(ConsoleKey.Enter, ConsoleModifiers.Shift);
+            editor.KeyBindings.Remove(ConsoleKey.Enter);
+            editor.KeyBindings.Remove(ConsoleKey.Enter, ConsoleModifiers.Shift);
 
-        editor.KeyBindings.Add<NewLineCommand>(ConsoleKey.Enter);
-        editor.KeyBindings.Add<SubmitCommand>(ConsoleKey.R, ConsoleModifiers.Control);
-        editor.KeyBindings.Add<SaveCommand>(ConsoleKey.S, ConsoleModifiers.Control | ConsoleModifiers.Alt);
+            editor.KeyBindings.Add<NewLineCommand>(ConsoleKey.Enter);
+            editor.KeyBindings.Add<QuitCommand>(ConsoleKey.Q, ConsoleModifiers.Control);
+            editor.KeyBindings.Add<RunCommand>(ConsoleKey.R, ConsoleModifiers.Control);
+            if (canSave)
+            {
+                editor.KeyBindings.Add<SaveCommand>(ConsoleKey.S, ConsoleModifiers.Control | ConsoleModifiers.Alt);
+            }
 
-        editorState.Editor = editor;
+            // Read a line (or many)
+            var cancelled = false;
+            try
+            {
+                editorState.Content = await editor.ReadLine(cancellationToken);
+            }
+            catch (TaskCanceledException) // Expected if CTRL+C is pressed
+            {
+                cancelled = true;
+            }
 
-        // Read a line (or many)
-        editorState.Content = await editor.ReadLine(cancellationToken);
+            if (editorState.Result == EditorResult.SaveFile)
+            {
+                Debug.Assert(!string.IsNullOrEmpty(targetFilePath));
+
+                AnsiConsole.Write(new Markup("[bold yellow]Saving file...[/]"));
+
+                // Save the content to the target file
+                await File.WriteAllTextAsync(targetFilePath, editorState.Content, cancellationToken);
+            }
+            else if (cancelled || editorState.Result == EditorResult.Quit)
+            {
+                editorState.Content = null;
+                break;
+            }
+            else if (editorState.Result == EditorResult.RunFile)
+            {
+                break;
+            }
+
+            // Clear the old editor instance
+            var currentCursorTop = Console.CursorTop;
+            var currentWindowTop = Console.WindowTop;
+            var lineCount = currentCursorTop - startCursorTop + 2;
+            AnsiConsole.Cursor.Hide();
+            AnsiConsole.Cursor.SetPosition(0, startCursorTop + 1);
+            for (var i = 0; i < lineCount; i++)
+            {
+                Console.Write(new string(' ', Console.WindowWidth));
+                if (i + 1 < lineCount)
+                {
+                    Console.WriteLine();
+                }
+            }
+            AnsiConsole.Cursor.SetPosition(0, startCursorTop);
+            AnsiConsole.Cursor.Show();
+
+            editorState.Result = null;
+        }
 
         if (editorState.Content is null || cancellationToken.IsCancellationRequested)
         {
@@ -198,7 +256,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
             return 1;
         }
 
-        if (targetFilePath is null)
+        if (saveChangesOnRun)
         {
             // Save input to a temporary file
             var tempFilePath = Path.GetTempFileName();
@@ -456,20 +514,41 @@ internal class SaveCommand : LineEditorCommand
 {
     public override void Execute(LineEditorContext context)
     {
-        using var inlineMessage = context.ShowInlineMessage(new("[bold yellow]: Saving file :[/]"));
-
         var editorState = context.GetRequiredService<EditorState>();
+        editorState.Result = EditorResult.SaveFile;
+        context.Submit(SubmitAction.Submit);
+    }
+}
 
-        Debug.Assert(!string.IsNullOrEmpty(editorState.FilePath));
-        Debug.Assert(editorState.Editor is not null);
+internal class RunCommand : LineEditorCommand
+{
+    public override void Execute(LineEditorContext context)
+    {
+        var editorState = context.GetRequiredService<EditorState>();
+        editorState.Result = EditorResult.RunFile;
+        context.Submit(SubmitAction.Submit);
+    }
+}
 
-        File.WriteAllText(editorState.FilePath, editorState.Editor.Text);
+internal class QuitCommand : LineEditorCommand
+{
+    public override void Execute(LineEditorContext context)
+    {
+        var editorState = context.GetRequiredService<EditorState>();
+        editorState.Result = EditorResult.Quit;
+        context.Submit(SubmitAction.Submit);
     }
 }
 
 internal class EditorState
 {
-    public LineEditor? Editor { get; set; }
-    public string? FilePath { get; set; }
     public string? Content { get; set; }
+    public EditorResult? Result { get; set; }
+}
+
+internal enum EditorResult
+{
+    RunFile,
+    SaveFile,
+    Quit
 }
