@@ -4,6 +4,7 @@ using System.CommandLine.Invocation;
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json.Serialization;
 using DotNetCs;
@@ -11,8 +12,6 @@ using Microsoft.Extensions.DependencyInjection;
 using NuGet.Versioning;
 using RadLine;
 using Spectre.Console;
-
-var minimumSdkVersion = new SemanticVersion(10, 0, 100, "preview.3.25163.13");
 
 var targetArgument = new Argument<string?>("TARGETAPPFILE")
 {
@@ -54,7 +53,11 @@ VersionOptionAction.Apply(rootCommand);
 
 var config = new CommandLineConfiguration(rootCommand)
 {
-    ProcessTerminationTimeout = Debugger.IsAttached ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(30)
+#if DEBUG
+    ProcessTerminationTimeout = Debugger.IsAttached ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(10)
+#else
+    ProcessTerminationTimeout = TimeSpan.FromSeconds(10)
+#endif
 };
 var result = rootCommand.Parse(args, config);
 var exitCode = await result.InvokeAsync();
@@ -71,14 +74,13 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
 #endif
 
     var detectNewerVersionTask = Task.Run(() => DetectNewerVersion(cancellationToken), cancellationToken);
-    var validateSdkVersionTask = Task.Run(() => ValidateMinimumSdkVersion(minimumSdkVersion, cancellationToken), cancellationToken);
 
     var targetValue = parseResult.GetValue(targetArgument);
     var appArgsValue = parseResult.GetValue(appArgsArgument);
     var editOptionValue = parseResult.GetValue(editOption);
     var canEdit = !Console.IsInputRedirected && (editOptionValue || targetValue == "-");
     var canSave = false;
-    var saveChangesOnRun = false;
+    var saveToTempFileOnRun = false;
 
     string? targetFilePath = null;
     List<string> appArgs = [];
@@ -89,7 +91,41 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
         appArgs.AddRange(appArgsValue);
     }
 
-    if (Console.IsInputRedirected)
+    if (File.Exists(targetValue))
+    {
+        // If it's a local file, use the provided path
+        targetFilePath = Path.GetFullPath(targetValue);
+        canSave = true;
+        saveToTempFileOnRun = true;
+    }
+    else if ((targetValue?.StartsWith("https://", StringComparison.OrdinalIgnoreCase) == true
+        || targetValue?.StartsWith("http://", StringComparison.OrdinalIgnoreCase) == true)
+        && Uri.TryCreate(targetValue, UriKind.Absolute, out var uri))
+    {
+        // If it's a URI, download the file to a temporary location
+        Write($"Downloading file from {uri}... ", ConsoleColor.DarkGray);
+        using var client = new HttpClient();
+        var response = await client.GetAsync(uri, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            WriteLine("failed", ConsoleColor.DarkGray);
+            WriteError($"Failed to download file from {uri}. Status code: {response.StatusCode}");
+            return 1;
+        }
+
+        WriteLine("done", ConsoleColor.DarkGray);
+
+        var tempFilePath = Path.GetTempFileName();
+        await using (var fileStream = File.Create(tempFilePath))
+        {
+            await response.Content.CopyToAsync(fileStream, cancellationToken);
+        }
+
+        saveToTempFileOnRun = true;
+        targetFilePath = ChangeFileExtension(tempFilePath, ".cs");
+    }
+    else if (Console.IsInputRedirected) // NOTE: VSCode C# debugger seems to redirect input
     {
         if (editOptionValue)
         {
@@ -115,40 +151,6 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
 
         targetFilePath = ChangeFileExtension(tempFilePath, ".cs");
     }
-    else if ((targetValue?.StartsWith("https://", StringComparison.OrdinalIgnoreCase) == true
-              || targetValue?.StartsWith("http://", StringComparison.OrdinalIgnoreCase) == true)
-             && Uri.TryCreate(targetValue, UriKind.Absolute, out var uri))
-    {
-        // If it's a URI, download the file to a temporary location
-        Write($"Downloading file from {uri}... ", ConsoleColor.DarkGray);
-        using var client = new HttpClient();
-        var response = await client.GetAsync(uri, cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            WriteLine("failed", ConsoleColor.DarkGray);
-            WriteError($"Failed to download file from {uri}. Status code: {response.StatusCode}");
-            return 1;
-        }
-
-        WriteLine("done", ConsoleColor.DarkGray);
-
-        var tempFilePath = Path.GetTempFileName();
-        await using (var fileStream = File.Create(tempFilePath))
-        {
-            await response.Content.CopyToAsync(fileStream, cancellationToken);
-        }
-
-        saveChangesOnRun = true;
-        targetFilePath = ChangeFileExtension(tempFilePath, ".cs");
-    }
-    else if (File.Exists(targetValue))
-    {
-        // If it's a local file, use the provided path
-        targetFilePath = Path.GetFullPath(targetValue);
-        canSave = true;
-        saveChangesOnRun = true;
-    }
     else if (!canEdit)
     {
         if (string.IsNullOrEmpty(targetValue))
@@ -164,7 +166,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
     else
     {
         // In editor mode
-        saveChangesOnRun = true;
+        saveToTempFileOnRun = true;
     }
 
     if (canEdit)
@@ -259,7 +261,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
             return 1;
         }
 
-        if (saveChangesOnRun)
+        if (saveToTempFileOnRun)
         {
             // Save input to a temporary file
             var tempFilePath = Path.GetTempFileName();
@@ -275,12 +277,16 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
         WriteLine("Running...", ConsoleColor.DarkGray);
     }
 
-    var (hasMinRequiredSdkVersion, currentSdkVersion) = await validateSdkVersionTask;
-    if (!hasMinRequiredSdkVersion)
+    var fd = RuntimeInformation.FrameworkDescription;
+    if (!fd.StartsWith(".NET 10.0", StringComparison.OrdinalIgnoreCase))
     {
-        WriteLine();
-        WriteLine($"This tool requires .NET SDK version {minimumSdkVersion} or higher but current version is {currentSdkVersion}.", ConsoleColor.Red);
-        return 1;
+        var (hasMinRequiredSdkVersion, minimumSdkVersion, currentSdkVersion) = await ValidateMinimumSdkVersion(new SemanticVersion(10, 0, 100, "preview.3.25163.13"), cancellationToken);
+        if (!hasMinRequiredSdkVersion)
+        {
+            WriteLine();
+            WriteLine($"This tool requires .NET SDK version {minimumSdkVersion} or higher but current version is {currentSdkVersion}.", ConsoleColor.Red);
+            return 1;
+        }
     }
 
     // Run the target file
@@ -313,15 +319,15 @@ static string ChangeFileExtension(string filePath, string newExtension)
     return newFilePath;
 }
 
-static async Task<(bool, SemanticVersion?)> ValidateMinimumSdkVersion(SemanticVersion minSdkVersionRequired, CancellationToken cancellationToken)
+static async Task<(bool HasMinimum, SemanticVersion Minimum, SemanticVersion? Current)> ValidateMinimumSdkVersion(SemanticVersion minSdkVersionRequired, CancellationToken cancellationToken)
 {
     var sdkVersion = await DotnetCli.Version(cancellationToken);
     if (sdkVersion is null)
     {
-        return (false, null);
+        return (false, minSdkVersionRequired, null);
     }
     
-    return sdkVersion >= minSdkVersionRequired ? (true, sdkVersion) : (false, sdkVersion);
+    return sdkVersion >= minSdkVersionRequired ? (true, minSdkVersionRequired, sdkVersion) : (false, minSdkVersionRequired, sdkVersion);
 }
 
 static async Task<string?> DetectNewerVersion(CancellationToken cancellationToken)
@@ -483,7 +489,7 @@ internal sealed class VersionOptionAction : SynchronousCommandLineAction
 {
     public static void Apply(RootCommand command)
     {
-        var versionOption = command.Options.FirstOrDefault(o => o.Name == "--version");
+        var versionOption = command.Options.FirstOrDefault(o => o.Name.StartsWith("--v", StringComparison.OrdinalIgnoreCase));
         if (versionOption is not null)
         {
             versionOption.Action = new VersionOptionAction();
