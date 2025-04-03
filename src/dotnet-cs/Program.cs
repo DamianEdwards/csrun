@@ -303,7 +303,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
     // Process the detect newer version task
     try
     {
-        var newerVersion = await detectNewerVersionTask;
+        var newerVersion = await detectNewerVersionTask.WaitAsync(TimeSpan.FromSeconds(3), cancellationToken);
         if (newerVersion is not null)
         {
             // TODO: Handle case when newer version is a pre-release version
