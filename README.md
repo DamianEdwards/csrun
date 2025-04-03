@@ -33,16 +33,16 @@ cs [<APPARGS>...] < <CSFILE>
 Name  | Description
 ------|------------------------------------------------
 `<TARGETAPPFILE>` | The file path or URI for the C# file to run. Pass '-' to enter interactive terminal mode.
-`<APPARGS>` | Any arguments that should be passed to the C# app.
+`<APPARGS>` | Any arguments that should be passed to the C# app
 
 ### Options
 
 Name  | Description
 ------|------------------------------------------------
-`-?`, `-h`, `--help` | Show help information.
-`--version` | Show version information.
+`-?`, `-h`, `--help` | Show help information
+`--version` | Show version information
 `--edit` | Edit content in an interactive terminal C# editor
-
+`--no-cache` | Do not use the cache file to determine if the target file is up to date
 
 ### Examples
 
