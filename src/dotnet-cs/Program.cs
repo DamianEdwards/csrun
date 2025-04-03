@@ -340,6 +340,30 @@ static async Task<(bool HasMinimum, SemanticVersion Minimum, SemanticVersion? Cu
 
 static async Task<string?> DetectNewerVersion(CancellationToken cancellationToken)
 {
+    // Only check for new version once every hour by storing a sentinel file in user profile directory
+    var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    var appDirectory = Path.Join(userProfile, ".dotnet-cs");
+    var versionCheckFileInfo = new FileInfo(Path.Join(appDirectory, "version-check.sentinel"));
+    if (!versionCheckFileInfo.Exists)
+    {
+        try
+        {
+            Directory.CreateDirectory(appDirectory);
+            File.WriteAllText(versionCheckFileInfo.FullName, string.Empty);
+            File.SetLastWriteTimeUtc(versionCheckFileInfo.FullName, DateTime.UtcNow);
+        }
+        catch (Exception)
+        {
+            // Ignore any failures when trying to create the cache file
+        }
+    }
+    else if (DateTime.UtcNow - versionCheckFileInfo.LastWriteTimeUtc < TimeSpan.FromHours(1))
+    {
+        // Already checked for new version within the last hour
+        return null;
+    }
+
+    // Check for new version
     var currentVersionValue = VersionOptionAction.GetCurrentVersion();
     if (currentVersionValue is null || !SemanticVersion.TryParse(currentVersionValue, out var currentVersion))
     {
@@ -370,7 +394,12 @@ static async Task<string?> DetectNewerVersion(CancellationToken cancellationToke
         }
     }
 
-    return latestVersion > currentVersion ? latestVersion.ToString() : null;
+    var result = latestVersion > currentVersion ? latestVersion.ToString() : null;
+
+    // Update the last write time of the version check file to the current time
+    File.SetLastWriteTimeUtc(versionCheckFileInfo.FullName, DateTime.UtcNow);
+
+    return result;
 }
 
 static void WriteError(string message) => WriteLine(message, ConsoleColor.Red);
