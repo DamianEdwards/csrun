@@ -288,7 +288,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
     var fd = RuntimeInformation.FrameworkDescription;
     if (!(fd.StartsWith(".NET 10.", StringComparison.OrdinalIgnoreCase) || fd.StartsWith(".NET 11.", StringComparison.OrdinalIgnoreCase)))
     {
-        var (hasMinRequiredSdkVersion, minimumSdkVersion, currentSdkVersion) = await ValidateMinimumSdkVersion(new SemanticVersion(10, 0, 100, "preview.3.25163.13"), cancellationToken);
+        var (hasMinRequiredSdkVersion, minimumSdkVersion, currentSdkVersion) = await ValidateMinimumSdkVersion(new SemanticVersion(10, 0, 100, "preview.4.25179.3"), cancellationToken);
         if (!hasMinRequiredSdkVersion)
         {
             WriteLine();
@@ -470,6 +470,7 @@ static class DotnetCli
         {
             filePath
         };
+        SetEnvironment(arguments);
         if (!disableCache && UpToDate(filePath))
         {
             arguments.Add("--no-build");
@@ -487,6 +488,20 @@ static class DotnetCli
         await process.WaitForExitAsync(cancellationToken);
 
         return process.ExitCode;
+    }
+
+    private static void SetEnvironment(List<string> arguments)
+    {
+        var currentEnvVars = Environment.GetEnvironmentVariables();
+        if (!(currentEnvVars.Contains("DOTNET_ENVIRONMENT") || currentEnvVars.Contains("ASPNETCORE_ENVIRONMENT")))
+        {
+            // Force the environment to Development if not set
+            var defaultEnvironment = "Development";
+            arguments.Add("--environment");
+            arguments.Add($"DOTNET_ENVIRONMENT={defaultEnvironment}");
+            arguments.Add("--environment");
+            arguments.Add($"ASPNETCORE_ENVIRONMENT={defaultEnvironment}");
+        }
     }
 
     private static bool UpToDate(string filePath)

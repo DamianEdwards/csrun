@@ -2,7 +2,7 @@
 
 A tool that makes it easy to run C# from a file, URI, or stdin.
 
-> Currently requires [.NET 10 SDK daily build](https://github.com/dotnet/sdk/blob/main/documentation/package-table.md), version *10.0.100-preview.3.25163.13* or later
+> Currently requires [.NET 10 SDK daily build](https://github.com/dotnet/sdk/blob/main/documentation/package-table.md), version *10.0.100-preview.4.25179.3* or later
 
 ## Installation
 
@@ -13,11 +13,11 @@ dotnet tool install -g dotnet-cs
 ## Usage
 
 ```shell
-cs [<TARGETAPPFILE> [<APPARGS>...]]
+cs <TARGETAPPFILE> [<APPARGS>...] [options]
 ```
 
 ```shell
-<COMMAND> | cs [<APPARGS>...]
+<COMMAND> | cs [<APPARGS>...] [options]
 ```
 
 ```shell
@@ -25,7 +25,7 @@ cs -
 ```
 
 ```shell
-cs [<APPARGS>...] < <CSFILE>
+cs [<APPARGS>...] < <CSFILE> [options]
 ```
 
 ### Arguments

@@ -1,3 +1,5 @@
+#!/usr/bin/env cs
+
 new Game().Run();
 
 class Game
