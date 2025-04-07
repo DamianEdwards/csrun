@@ -288,7 +288,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
     var fd = RuntimeInformation.FrameworkDescription;
     if (!(fd.StartsWith(".NET 10.", StringComparison.OrdinalIgnoreCase) || fd.StartsWith(".NET 11.", StringComparison.OrdinalIgnoreCase)))
     {
-        var (hasMinRequiredSdkVersion, minimumSdkVersion, currentSdkVersion) = await ValidateMinimumSdkVersion(new SemanticVersion(10, 0, 100, "preview.4.25179.3"), cancellationToken);
+        var (hasMinRequiredSdkVersion, minimumSdkVersion, currentSdkVersion) = await ValidateMinimumSdkVersion(new SemanticVersion(10, 0, 100, "preview.4.25178.8"), cancellationToken);
         if (!hasMinRequiredSdkVersion)
         {
             WriteLine();
