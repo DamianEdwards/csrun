@@ -31,11 +31,6 @@ var editOption = new Option<bool>("--edit")
     Description = "Edit content in an interactive terminal C# editor"
 };
 
-var noCacheOption = new Option<bool>("--no-cache")
-{
-    Description = "Do not use the cache file to determine if the target file is up to date"
-};
-
 #if DEBUG
 var debugOption = new Option<bool>("--debug", "-d")
 {
@@ -49,7 +44,6 @@ var rootCommand = new RootCommand("Runs C# from a file, URI, or stdin")
     targetArgument,
     appArgsArgument,
     editOption,
-    noCacheOption,
 #if DEBUG
     debugOption
 #endif
@@ -85,7 +79,6 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
     var targetValue = parseResult.GetValue(targetArgument);
     var appArgsValue = parseResult.GetValue(appArgsArgument);
     var editOptionValue = parseResult.GetValue(editOption);
-    var noCacheOptionValue = parseResult.GetValue(noCacheOption);
     var canEdit = !Console.IsInputRedirected && (editOptionValue || targetValue == "-");
     var canSave = false;
     var saveToTempFileOnRun = false;
@@ -288,7 +281,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
     var fd = RuntimeInformation.FrameworkDescription;
     if (!(fd.StartsWith(".NET 10.", StringComparison.OrdinalIgnoreCase) || fd.StartsWith(".NET 11.", StringComparison.OrdinalIgnoreCase)))
     {
-        var (hasMinRequiredSdkVersion, minimumSdkVersion, currentSdkVersion) = await ValidateMinimumSdkVersion(new SemanticVersion(10, 0, 100, "preview.4.25178.8"), cancellationToken);
+        var (hasMinRequiredSdkVersion, minimumSdkVersion, currentSdkVersion) = await ValidateMinimumSdkVersion(new SemanticVersion(10, 0, 100, "preview.4.25211.22"), cancellationToken);
         if (!hasMinRequiredSdkVersion)
         {
             WriteLine();
@@ -298,7 +291,7 @@ async Task<int> RunCommand(ParseResult parseResult, CancellationToken cancellati
     }
 
     // Run the target file
-    var exitCode = await DotnetCli.Run(targetFilePath!, appArgs, noCacheOptionValue, cancellationToken);
+    var exitCode = await DotnetCli.Run(targetFilePath!, appArgs, cancellationToken);
 
     // Process the detect newer version task
     try
@@ -464,17 +457,15 @@ static class DotnetCli
         return SemanticVersion.TryParse(stdout.ToString().Trim(), out var value) ? value : null;
     }
 
-    public async static Task<int> Run(string filePath, List<string>? args, bool disableCache, CancellationToken cancellationToken)
+    public async static Task<int> Run(string filePath, List<string>? args, CancellationToken cancellationToken)
     {
         var arguments = new List<string>(RunArgs)
         {
             filePath
         };
+
         SetEnvironment(arguments);
-        if (!disableCache && UpToDate(filePath))
-        {
-            arguments.Add("--no-build");
-        }
+
         if (args is { Count: > 0 })
         {
             arguments.Add("--");
@@ -502,85 +493,6 @@ static class DotnetCli
             arguments.Add("--environment");
             arguments.Add($"ASPNETCORE_ENVIRONMENT={defaultEnvironment}");
         }
-    }
-
-    private static bool UpToDate(string filePath)
-    {
-        var fileInfo = new FileInfo(filePath);
-        var cacheFileInfo = new FileInfo(fileInfo.FullName + ".csrun.cache");
-        var upToDate = true;
-
-        if (!cacheFileInfo.Exists)
-        {
-            // Create the cache sentinel file if it doesn't exist
-            try
-            {
-                // Write the cache sentinel file
-                File.WriteAllText(cacheFileInfo.FullName, string.Empty);
-                File.SetLastWriteTimeUtc(cacheFileInfo.FullName, DateTime.UtcNow);
-                File.SetAttributes(cacheFileInfo.FullName, FileAttributes.Hidden);                
-            }
-            catch (Exception)
-            {
-                // Ignore any failures when trying to create the cache file
-            }
-            upToDate = false;
-        }
-
-        // Check if file was modified since last run
-        if (upToDate && fileInfo.LastWriteTimeUtc > cacheFileInfo.LastWriteTimeUtc)
-        {
-            // Update the cache file's last write time to the current time
-            try
-            {
-                File.SetLastWriteTimeUtc(cacheFileInfo.FullName, DateTime.UtcNow);
-            }
-            catch (Exception)
-            {
-                // Ignore any failures when trying to update the cache file's last write time
-            }
-            return false;
-        }
-
-        // Check if implicit build files exist and are up to date since last run.
-        // Implicit build files include Directory.Build.props, Directory.Build.targets, Directory.Packages.props, and global.json.
-        // These files are usually located in the same directory as the target file or in parent directories.
-        // If any of these files are newer than the target file, we should rebuild the project.
-        var implicitBuildFiles = new[] { "Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props", "global.json" };
-        var directory = fileInfo.Directory;
-
-        while (directory != null)
-        {
-            foreach (var implicitFileName in implicitBuildFiles)
-            {
-                var implicitFilePath = Path.Combine(directory.FullName, implicitFileName);
-                if (File.Exists(implicitFilePath))
-                {
-                    var implicitFileInfo = new FileInfo(implicitFilePath);
-                    var implicitCacheFileInfo = new FileInfo(implicitFileInfo.FullName + ".csrun.cache");
-
-                    if (!implicitCacheFileInfo.Exists || implicitFileInfo.LastWriteTimeUtc > implicitCacheFileInfo.LastWriteTimeUtc)
-                    {
-                        // Create or update the cache sentinel file
-                        try
-                        {
-                            File.WriteAllText(implicitCacheFileInfo.FullName, string.Empty);
-                            File.SetAttributes(implicitCacheFileInfo.FullName, FileAttributes.Hidden);
-                            File.SetLastWriteTimeUtc(implicitCacheFileInfo.FullName, DateTime.UtcNow);
-                        }
-                        catch (Exception)
-                        {
-                            // Ignore any failures when trying to create or update the cache file
-                        }
-                        upToDate = false;
-                    }
-                }
-            }
-
-            directory = directory.Parent; // Move to the parent directory
-        }
-
-        return upToDate;
     }
 
     private static Process Start(IEnumerable<string> arguments) => Start(GetProcessStartInfo(arguments));

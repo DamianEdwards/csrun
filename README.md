@@ -42,7 +42,6 @@ Name  | Description
 `-?`, `-h`, `--help` | Show help information
 `--version` | Show version information
 `--edit` | Edit content in an interactive terminal C# editor
-`--no-cache` | Do not use the cache file to determine if the target file is up to date
 
 ### Examples
 
