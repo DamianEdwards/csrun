@@ -10,7 +10,7 @@
     <Nullable>enable</Nullable>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>cs</ToolCommandName>
-    <VersionPrefix>0.0.13</VersionPrefix>
+    <VersionPrefix>0.0.14</VersionPrefix>
     <VersionSuffix Condition=" '$(Configuration)' == 'Debug' ">dev</VersionSuffix>
     <Authors>Damian Edwards</Authors>
     <Copyright>Copyright © Damian Edwards</Copyright>
